@@ -14,6 +14,7 @@ setup(
         ('share/' + package_name, ['package.xml']),
         ('share/' + package_name + '/launch', glob('launch/*.launch.py')),
         ('share/' + package_name + '/config', glob('config/*')),
+        ('share/' + package_name + '/web', glob('web/*')),
     ],
     install_requires=['setuptools'],
     zip_safe=True,
@@ -32,6 +33,7 @@ setup(
             'slam_to_mavros = airmouse.slam_to_mavros:main',
             'grid_mapper = airmouse.grid_mapper:main',
             'explorer = airmouse.explorer:main',
+            'dashboard_server = airmouse.dashboard_server:main',
         ],
     },
 )

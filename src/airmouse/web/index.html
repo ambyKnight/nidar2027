@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AirMouse Ground Control Station</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="gcs-container">
+    <!-- Header Bar -->
+    <header class="gcs-header">
+      <div class="brand">
+        <div class="brand-logo">
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor">
+            <path d="M12 2L1 21h22L12 2zm0 3.84L19.46 19H4.54L12 5.84zM11 10h2v4h-2zm0 6h2v2h-2z"/>
+          </svg>
+        </div>
+        <div class="brand-text">
+          <span class="title">AIRMOUSE</span>
+          <span class="subtitle">AUTONOMOUS GCS</span>
+        </div>
+      </div>
+
+      <div class="header-status">
+        <div class="status-item">
+          <span class="label">MISSION PHASE</span>
+          <span id="phase-badge" class="badge badge-idle">STANDBY</span>
+        </div>
+        <div class="status-item">
+          <span class="label">FLIGHT TIME</span>
+          <span id="flight-timer" class="value timer">00:00</span>
+        </div>
+        <div class="status-item">
+          <span class="label">LINK</span>
+          <div id="connection-pill" class="conn-pill disconnected">
+            <span class="dot"></span>
+            <span id="connection-label">DISCONNECTED</span>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <!-- Main Workspace -->
+    <div class="gcs-main">
+      <!-- Left Telemetry Sidebar -->
+      <aside class="telemetry-sidebar">
+        <!-- Drone Pose Card -->
+        <div class="telemetry-card">
+          <div class="card-title">DRONE TELEMETRY</div>
+          <div class="metric-grid">
+            <div class="metric">
+              <span class="metric-label">POS X</span>
+              <span id="val-pos-x" class="metric-val">0.00 <span class="unit">m</span></span>
+            </div>
+            <div class="metric">
+              <span class="metric-label">POS Y</span>
+              <span id="val-pos-y" class="metric-val">0.00 <span class="unit">m</span></span>
+            </div>
+            <div class="metric">
+              <span class="metric-label">ALT (Z)</span>
+              <span id="val-pos-z" class="metric-val">0.00 <span class="unit">m</span></span>
+            </div>
+            <div class="metric">
+              <span class="metric-label">HEADING</span>
+              <span id="val-yaw" class="metric-val">0.0<span class="unit">°</span></span>
+            </div>
+          </div>
+          <div class="current-cell-row">
+            <span class="cell-label">CURRENT CELL:</span>
+            <span id="val-current-cell" class="cell-coords">(0, 0)</span>
+          </div>
+        </div>
+
+        <!-- Exploration Metrics Card -->
+        <div class="telemetry-card">
+          <div class="card-title">EXPLORATION METRICS</div>
+          <div class="metric-list">
+            <div class="metric-row">
+              <span class="label">Cells Visited</span>
+              <span id="val-visited" class="value highlight">0</span>
+            </div>
+            <div class="metric-row">
+              <span class="label">Cells Mapped</span>
+              <span id="val-mapped" class="value">0</span>
+            </div>
+            <div class="metric-row">
+              <span class="label">Waypoints in Queue</span>
+              <span id="val-queue" class="value">0</span>
+            </div>
+            <div class="metric-row">
+              <span class="label">Camera Coverage</span>
+              <span id="val-camera-seen" class="value">0 cells</span>
+            </div>
+            <div class="metric-row">
+              <span class="label">Returning Home</span>
+              <span id="val-going-home" class="value status-off">NO</span>
+            </div>
+            <div class="metric-row">
+              <span class="label">Wall Guard Events</span>
+              <span id="val-guard-events" class="value">0</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Obstacle Clearance (ToF) -->
+        <div class="telemetry-card">
+          <div class="card-title">OBSTACLE CLEARANCE (ToF)</div>
+          <div class="tof-grid">
+            <div class="tof-box" id="tof-fwd-box">
+              <span class="tof-label">FWD</span>
+              <span id="tof-fwd" class="tof-val">--</span>
+            </div>
+            <div class="tof-box" id="tof-bwd-box">
+              <span class="tof-label">BWD</span>
+              <span id="tof-bwd" class="tof-val">--</span>
+            </div>
+            <div class="tof-box" id="tof-left-box">
+              <span class="tof-label">LEFT</span>
+              <span id="tof-left" class="tof-val">--</span>
+            </div>
+            <div class="tof-box" id="tof-right-box">
+              <span class="tof-label">RIGHT</span>
+              <span id="tof-right" class="tof-val">--</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Map Legend Card -->
+        <div class="telemetry-card legend-card">
+          <div class="card-title">MAP LEGEND</div>
+          <div class="legend-items">
+            <div class="legend-item">
+              <span class="legend-line wall-line"></span>
+              <span class="legend-text">Wall (Solid Red)</span>
+            </div>
+            <div class="legend-item">
+              <span class="legend-line open-line"></span>
+              <span class="legend-text">Open Passage (Green)</span>
+            </div>
+            <div class="legend-item">
+              <span class="legend-line path-line"></span>
+              <span class="legend-text">Planned Route (Cyan)</span>
+            </div>
+            <div class="legend-item">
+              <span class="legend-box visited-box"></span>
+              <span class="legend-text">Visited Cell</span>
+            </div>
+            <div class="legend-item">
+              <span class="legend-box drone-box"></span>
+              <span class="legend-text">Drone Position & Yaw</span>
+            </div>
+          </div>
+        </div>
+      </aside>
+
+      <!-- Center Map Viewport -->
+      <main class="map-viewport">
+        <canvas id="map-canvas"></canvas>
+
+        <!-- On-canvas Floating Controls -->
+        <div class="map-controls">
+          <button id="btn-zoom-in" title="Zoom In">+</button>
+          <button id="btn-zoom-out" title="Zoom Out">−</button>
+          <button id="btn-fit-view" title="Fit Entire Grid">Fit</button>
+          <button id="btn-follow-drone" class="active" title="Toggle Follow Drone">Follow</button>
+        </div>
+
+        <div class="map-overlay-info">
+          <span id="map-grid-count">0 cells rendered</span>
+          <span class="divider">|</span>
+          <span id="map-scale-info">Scale: 50 px/m</span>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

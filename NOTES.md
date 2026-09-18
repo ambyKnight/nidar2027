@@ -72,6 +72,21 @@ closes the next hop. `strategy:=dfs` restores the old tour of every cell. Offlin
 maze ~5.5 -> 2.5 min, rooms_small_4 17 -> 2.1 min, rooms_1 (544 cells) 79 -> 7.9 min. SLAM was FAR better in open rooms than in the
 narrow maze (0.03 m vs 1+ m), which fits the failure being specific to those corridors.
 
+**Hardware update (2026-09-18, NOT flown yet): two 200 deg side cameras, 4 edge ToF sensors, optical flow.**
+- Cameras: two 200 deg side cameras = all-round view, so `cam_hfov_deg` defaults to 360: the drone never yaws and never
+  spins (the spins below were for a single forward camera, still available with `cam_hfov_deg:=69`). Offline, all-round
+  cameras + utility: camera 100% everywhere, **maze 3.4, rooms_small_4 3.1, rooms_small_5 5.2 min** (single camera +
+  spins was 4.4 / 4.4 / 7.3). With `drift_penalty:=1.0` the maze drops to 2.6 min with a third fewer one-wall hops.
+- ToF wall guard (`explorer.on_tof`): **ArduPilot's avoidance does not act on GUIDED position targets** (only velocity
+  targets, `mode_guided.cpp` velaccel_control_run), so the stop is ours. It checks each reading at 20 Hz and fires at
+  `tof_stop` (0.10 m) + braking distance at the current speed towards that wall: at WP_SPD 1.0 m/s that is ~0.5 m,
+  not 0.1. It holds a point backed away from the wall, then re-plans; `guard_limit` firings a minute aborts.
+  Sim: 4 VL53L1X-like gpu_lidar sensors on the frame edges, bridged to `/airmouse/tof/{front,back,left,right}`.
+  Real drone: the ToF readings must reach the companion computer (wired to it, or to the FC and relayed by MAVROS).
+- Optical flow (`sim/params/optflow.parm`, loaded with `--nogps`): SITL-simulated flow + downward rangefinder,
+  `EK3_SRC1_VELXY 5`. It gives the EKF independent velocity between SLAM updates. It does NOT correct a SLAM map
+  that has slipped: the EKF still follows SLAM position, and grid_mapper uses SLAM's map.
+
 **Camera-aware utility exploration (2026-09-18, offline-tested only, NOT flown).** The camera finds survivors (240 pts),
 but `go_to` always sent yaw 0, so the camera only ever faced +x. Offline it saw just **86% / 65% / 49% / 61%** of cells
 (maze / rooms_small_4 / rooms_small_5 / rooms_1). The explorer now (`camera:=utility`, default) points the nose along each leg,
@@ -251,6 +266,11 @@ SLAM, and the run hangs. The experiment script was removed 2026-09-18 (archived 
 **Simulation realism**
 - Stock Iris collides as ~64 cm wide (15 cm clearance per side in a 1 m corridor); our real 5-inch with
   guards is ~35 cm (~33 cm clearance). `iris_standoffs_5in` keeps Iris physics with a 35 cm footprint.
+  **2026-09-18: the real drone is 330 mm tip to tip including guards, 1.3 kg** (earlier 5"/35 cm figures are
+  superseded). The sim box is now 23.3 cm square (33 cm diagonal: ~38 cm clearance per side, ~33 cm turned 45 deg),
+  the body mass is set so the model totals 1.3 kg, inertia scaled by mass only. Motors/thrust are still the Iris's,
+  so the sim has spare thrust the real drone may not - hover throttle from the sim means nothing. Runs 1-16 flew the
+  35 cm box.
 - `/model/iris_lidar/pose` is simulator ground truth - for measuring only, never for flying.
 
 ## Are we reinventing the wheel? (researched 2026-09-18)
@@ -292,9 +312,8 @@ Next
 - [ ] Random-maze generator + overnight batch runs with auto-scoring
 - [ ] Survivors in the sim (Rescue Randy; Gazebo Fuel downloads are blocked on this network)
 - [ ] Bounding-box camera as a fake detector, then `survivor_tagger` -> grid cell tags
-- [ ] GCS dashboard (foxglove_bridge / rosbridge -> browser); `/airmouse/explorer` already publishes
-      live state as JSON for it
-- [ ] Put `~/airmouse_ws` under Git
+- [x] GCS dashboard (lightweight HTML5/Canvas web dashboard at http://localhost:8080 via rosbridge WebSocket)
+- [x] Put `~/airmouse_ws` under Git
 
 Later / if time
 - [ ] Finish step 7: explain the 0.98 m replay vs 0.15 m live gap, then apply `sub70` + `occ20` + `tw1`
