@@ -40,7 +40,11 @@ TOF_TEMPLATE = """
       <sensor name="tof_{name}" type="gpu_lidar">
         <gz_frame_id>tof_{name}_link</gz_frame_id>
         <topic>tof_{name}</topic>
-        <update_rate>20</update_rate>
+        <!-- 10 Hz, not 20: each gpu_lidar costs a GPU render. At 20 Hz the four ToF asked for 80 renders/s on top
+             of the LiDAR's 10, and when the sim ran fast (73% real time) ~40% of /scan never arrived - Cartographer
+             starved and slipped whole cells (the aborted rooms_small_4 run, 2026-09-18). 10 Hz still samples every
+             10 cm at 1 m/s, which is what the wall guard needs. -->
+        <update_rate>10</update_rate>
         <always_on>true</always_on>
         <lidar>
           <scan>

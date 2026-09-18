@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Save the current SLAM /map as a PNG, with the true maze walls drawn on top in blue.
 
-    python3 save_map.py out.png [--truth worlds/practice_6x6_truth.json] [--spawn-yaw 90]
+    python3 save_map.py out.png [--truth worlds/rooms_small_4_truth.json] [--spawn-yaw 90]
 
 Black = wall seen by SLAM, white = free space, grey = unknown, blue = real walls (from the truth file).
 The SLAM map frame starts at the drone's takeoff pose, so we rotate the truth by the spawn yaw.
@@ -62,7 +62,7 @@ def true_walls_in_map_frame(truth, spawn_yaw_deg):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("out")
-    ap.add_argument("--truth", default=str(Path(__file__).parent / "worlds/practice_6x6_truth.json"))
+    ap.add_argument("--truth", default=str(Path(__file__).parent / "worlds/rooms_small_4_truth.json"))
     ap.add_argument("--spawn-yaw", type=float, default=90.0)
     args = ap.parse_args()
 

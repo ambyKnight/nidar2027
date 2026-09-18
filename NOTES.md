@@ -48,6 +48,9 @@ Runs 1-6 used `plan_tour.py` (route from the true maze). Runs 7+ are autonomous.
 | 11 | IMU bridged from Gazebo on sim time (`/airmouse/imu`, roll-pi TF, `use_imu_data = true`) | SLAM ran and drone took off (first time IMU works). **Self-inflicted:** I killed the Gazebo GUI child process and the wrapper took the whole simulator down mid-flight. `sim_up.sh` now runs server and GUI as separate processes |
 | 12 | same, GUI on GPU | explored **31/36 cells** in ~5 min, then hit a wall at (2,-5)->(3,-5) (seen by the user) and aborted `stuck` after 45 s; landed safely. Map **5/36 cells (14%), 80/144 sides (56%)**, smeared with repeated parallel walls. The true maze is OPEN between those two cells, so this was not a misclassified wall: SLAM was already offset from the drone. `slam_eval` output lost (see below) |
 | 13 | same, `slam_eval` fixed, IMU confirmed at ~950 Hz in Cartographer | **first full-flight SLAM-vs-truth.** Error <0.13 m for 220 s (mean ~0.03), then breaks down at truth (2,-3) -> 1.2 m by +280 s, 1.8 m at the end. Drone then followed the corrupt pose into the far wall: **drift FIRST, collision after** (plot: `sim/plot_run.py`). Same spot as run 12. Explorer never finished LANDING (exit 124 after 12 min - needs a landing timeout). Map 4/36 (11%), 70/144 sides (49%) |
+| 17 | camera-aware utility exploration, 330 mm/1.3 kg drone, 4 edge ToF + wall guard, optical flow | **clean, ~3 min: 120/120 mapped, 111/120 cells (92%), 471/480 sides (98%), SLAM mean 0.05 m max 0.13 m, exit 0.** Guard fired 4x on a bad speed estimate (pose differencing read 1.4-1.9 m/s against a true 1.11 m/s) - now uses EKF velocity (`/mavros/local_position/velocity_local`) |
+| 18 | same, on `rooms_small_4` after the other agent's exit/survivor work | **ABORTED at 5 wall-guard firings.** SLAM error mean 0.227 m, **max 3.63 m**: whole-cell slips. Root cause NOT the algorithm - only ~60% of `/scan` reached Cartographer (4.4 Hz vs 7.3 expected at 73% real time). The four ToF gpu_lidars at 20 Hz were asking for 80 GPU renders/s. The guard did its job: it landed safely instead of crashing |
+| 19 | **ToF sensors 10 Hz + explorer logs the LiDAR rate** | **best run so far: 116.2 s, map 116/120 cells (97%), 476/480 sides (99%), SLAM mean 0.058 m max 0.180 m, 1 guard firing, autonomous exit flown, exit 0.** LiDAR steady at 10.0 Hz |
 | 16 | **NEW `frontier` explorer on the generated building `rooms_small_4`** (3 rooms wide, 12x10 m, 120 cells) | **Clean autonomous mission in ~2.5 min: 24 cells flown, all 120 mapped. Map 111/120 cells (92%), 462/480 sides (96%). SLAM error mean 0.028 m, max 0.063 m.** Landed, exit 0. First time the whole chain works. (Runs 14/15 never flew: 14 was the wrong world; 15 lost Gazebo at startup to the WSL GPU glitch - `sim_up.sh` now retries)
 | 17 | `rooms_small_4`, first flight with the 330 mm / 1.3 kg drone, 360° cameras, ToF guard and optical flow | **Clean mission, about 3 min: 120/120 cells mapped; 111/120 cells (92%) and 471/480 sides (98%) correct. SLAM error mean 0.05 m, max 0.13 m.** Guard fired 4 times falsely: the pose-difference speed read 1.4–1.9 m/s against a true 1.11 m/s. It now uses EKF velocity. Run folder: `sim/runs/0918_192850` |
 
@@ -72,6 +75,20 @@ penalty, so long straights beat staircases) and are flown in straight legs; a pa
 closes the next hop. `strategy:=dfs` restores the old tour of every cell. Offline (idealised line-of-sight model, WP_SPD 0.5 m/s):
 maze ~5.5 -> 2.5 min, rooms_small_4 17 -> 2.1 min, rooms_1 (544 cells) 79 -> 7.9 min. SLAM was FAR better in open rooms than in the
 narrow maze (0.03 m vs 1+ m), which fits the failure being specific to those corridors.
+
+**Sim sensor load is a SLAM failure mode (2026-09-18, runs 18/19).** Every `gpu_lidar` costs a GPU render, and when
+the simulator cannot keep up it DROPS scans silently - no warning anywhere. Starved of scans the Cartographer scan
+matcher slips whole cells in repetitive rooms, and the drone then flies at walls believing it is centred. Check the
+delivered rate, not the configured one: `/scan` should arrive at 10 Hz x (sim real-time factor), and Cartographer logs
+that factor as `pulsed at NN% real time`. The explorer now logs `LiDAR X.X Hz` (sim) every 5 s and warns under 6 Hz.
+Counter-intuitive: a SLOWER sim is safer, because fewer sensor renders are demanded per wall-clock second - run 17 was
+clean at 40% real time and run 18 broke at 73%.
+
+**The practice maze was deleted (2026-09-18).** `practice_6x6` was a hand-drawn 1 m corridor maze; the real NIDAR
+arena is rooms of 2x2 m joined by doors in 1 m walls, which is what `make_rooms.py` generates. `rooms_small_4`
+(12x10 m, 120 cells) is now the default world everywhere - it is the only generated world inside NIDAR's 15x15 m
+limit (rooms_small_3 is 18 m, rooms_small_5 is 20 m, rooms_1 is 34 m). Runs 1-15 in the log above were flown in the
+deleted maze; their SLAM findings still stand, the world is just not representative.
 
 **Hardware update (2026-09-18, NOT flown yet): two 200 deg side cameras, 4 edge ToF sensors, optical flow.**
 - Cameras: two 200 deg side cameras = all-round view, so `cam_hfov_deg` defaults to 360: the drone never yaws and never

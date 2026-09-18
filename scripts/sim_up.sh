@@ -4,11 +4,11 @@
 # Then run our code in this terminal, e.g.:  ros2 run airmouse fly_square
 # Stop everything with:  ~/airmouse_ws/scripts/sim_down.sh
 #
-# Usage: sim_up.sh [world.sdf] [--headless] [--nogps]     (default: practice_6x6.sdf)
+# Usage: sim_up.sh [world.sdf] [--headless] [--nogps]     (default: rooms_small_4.sdf)
 #   e.g. sim_up.sh iris_runway.sdf   for ArduPilot's open runway (no maze, no LiDAR)
 #   --nogps   ArduPilot ignores GPS and waits for SLAM position (then: ros2 launch airmouse slam.launch.py)
 set -e
-WORLD=practice_6x6.sdf
+WORLD=rooms_small_4.sdf
 GZ_ARGS=""
 PARAMS=Tools/autotest/default_params/copter.parm,Tools/autotest/default_params/gazebo-iris.parm,$HOME/airmouse_ws/sim/params/indoor.parm
 for arg in "$@"; do

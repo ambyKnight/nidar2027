@@ -19,7 +19,7 @@ from airmouse.explore_logic import (NEIGHBOUR, camera_gain, corridor_penalty, fr
                                     room_centres, next_step, open_neighbours, passable, path_home, side_between,
                                     straight_run, utility_step)
 
-TRUTH = Path(__file__).parent / "worlds/practice_6x6_truth.json"
+TRUTH = Path(__file__).parent / "worlds/rooms_small_4_truth.json"
 HOME = (0, 0)
 BLOCKED = {(HOME, "-x")}   # the entrance: open, but it leads out of the arena
 
@@ -176,7 +176,7 @@ def check_frontier(full_map, failures, name):
     return failures
 
 
-def check_coverage(full_map, failures, max_leg=1, name="maze"):
+def check_coverage(full_map, failures, max_leg=1, name="rooms_small_4"):
     total = len(full_map)
     for fog in (False, True):
         label = f"{name}, {'fog of war (map learned by looking)' if fog else 'perfect map'}, max_leg={max_leg}"
@@ -246,7 +246,7 @@ def main():
     full_map = truth_to_cells(json.loads(TRUTH.read_text()))
     failures = check_coverage(full_map, 0, max_leg=1)
     failures = check_coverage(full_map, failures, max_leg=3)
-    failures = check_frontier(full_map, failures, "maze")
+    failures = check_frontier(full_map, failures, "rooms_small_4")
     for name in sys.argv[1:]:        # e.g. rooms_1: a generated building of rooms (make_rooms.py)
         other = truth_to_cells(json.loads((TRUTH.parent / f"{name}_truth.json").read_text()))
         failures = check_coverage(other, failures, max_leg=1, name=name)

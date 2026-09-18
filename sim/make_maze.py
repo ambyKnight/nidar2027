@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Turn an ASCII maze drawing into a Gazebo world (plus a ground-truth wall file).
 
-Drawing format (see mazes/practice_6x6.txt): every cell is 3 characters wide.
+Drawing format (see mazes/rooms_small_4.txt): every cell is 3 characters wide.
     +--+--+      '+'  corner post
     |     |      '--' wall on a cell's top/bottom edge, '  ' = opening
     +  +--+      '|'  wall on a cell's left/right edge,  ' ' = opening
@@ -9,8 +9,8 @@ A gap in the outer wall is the entrance/exit. The drone spawns in that cell, whi
 the world origin (0, 0), facing into the maze. World +y = north (up the drawing).
 
 Usage:
-    python3 make_maze.py mazes/practice_6x6.txt
-writes worlds/practice_6x6.sdf and worlds/practice_6x6_truth.json
+    python3 make_maze.py mazes/rooms_small_4.txt
+writes worlds/rooms_small_4.sdf and worlds/rooms_small_4_truth.json
 """
 import argparse
 import json

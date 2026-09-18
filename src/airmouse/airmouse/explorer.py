@@ -150,6 +150,13 @@ class Explorer(CopterNode):
         self.spin_until = 0.0
         self.spun_at = None        # one spin per stop: the map growing DURING a spin must not start another
         self.tof = {}              # side -> (range m, monotonic time)
+        # A starved scan matcher is what breaks SLAM (whole-cell slips), and it looks like nothing in the logs.
+        # Count /scan ourselves and say so: the LiDAR is 10 Hz in SIM time, so anything well under that means
+        # scans are being dropped (GPU/CPU overload) and nothing downstream can be trusted.
+        self.scan_count = 0
+        self.scan_window_start = None
+        self.scan_hz = 0.0
+        self.create_subscription(LaserScan, "/scan", self.on_scan, qos_profile_sensor_data)
         self.guard_until = 0.0     # holding a backed-off point until then
         self.guard_target = None
         self.guard_events = []     # monotonic times the guard fired
@@ -200,6 +207,20 @@ class Explorer(CopterNode):
                 f"backing off {back:.2f} m and re-planning ({len(self.guard_events)} in the last minute)")
         self.guard_until = now + self.guard_hold
 
+    def on_scan(self, msg):
+        now = self.get_clock().now()
+        if self.scan_window_start is None:
+            self.scan_window_start = now
+        self.scan_count += 1
+        span = (now - self.scan_window_start).nanoseconds / 1e9
+        if span >= 5.0:
+            self.scan_hz = self.scan_count / span
+            self.scan_count, self.scan_window_start = 0, now
+            if self.scan_hz < 6.0:
+                self.get_logger().warn(
+                    f"LiDAR only {self.scan_hz:.1f} Hz (sim) - scans are being dropped. SLAM will drift and the "
+                    f"map cannot be trusted; close other GPU/CPU load or run HEADLESS=1")
+
     def on_velocity(self, msg):
         self.vel = (msg.twist.linear.x, msg.twist.linear.y)
 
@@ -241,7 +262,7 @@ class Explorer(CopterNode):
             "state": self.state, "current": list(self.current), "visited": len(self.visited),
             "mapped": len(self.cells), "going_home": self.going_home,
             "queue": [list(c) for c in self.queue], "camera_seen": len(self.cam_seen),
-            "guard_events": len(self.guard_events),
+            "guard_events": len(self.guard_events), "scan_hz": round(self.scan_hz, 1),
             "tof": {k: round(v[0], 2) for k, v in self.tof.items()},
             "elapsed": round(elapsed, 1),
         })))
@@ -287,7 +308,8 @@ class Explorer(CopterNode):
             self.last_log = time.monotonic()
             self.get_logger().info(
                 f"{self.state} at {self.current}: {len(self.visited)} visited, "
-                f"{len(self.cells)} cells mapped, {self.budget_left():.0f} s left")
+                f"{len(self.cells)} cells mapped, {self.budget_left():.0f} s left, "
+                f"LiDAR {self.scan_hz:.1f} Hz")
 
         if self.guard_target is not None and self.tick_guard():
             return
@@ -503,6 +525,11 @@ class Explorer(CopterNode):
         self.get_logger().info(f"exploration done ({len(self.visited)} cells) - home via {self.queue}")
 
     def on_landed(self):
+        if self.mission_started is not None:
+            # SIM seconds from the start of exploring to touchdown (the sim runs slower than real time, so wall
+            # time varies with CPU load and cannot compare runs). test_explore.sh prints this line in its summary.
+            took = (self.get_clock().now() - self.mission_started).nanoseconds / 1e9
+            self.get_logger().info(f"mission time: {took:.1f} s (sim, exploring start to landed)")
         self.get_logger().info(f"visited {len(self.visited)} cells: {sorted(self.visited)}")
         if len(self.visited) <= 1:
             self.get_logger().error(

@@ -24,7 +24,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("csv", nargs="?", default="/tmp/airmouse_sim/explore/slam_eval.csv")
     ap.add_argument("out", nargs="?", default="/tmp/airmouse_sim/explore/path.png")
-    ap.add_argument("--truth", default=str(Path(__file__).parent / "worlds/practice_6x6_truth.json"))
+    ap.add_argument("--truth", default=str(Path(__file__).parent / "worlds/rooms_small_4_truth.json"))
     ap.add_argument("--spawn-yaw", type=float, default=90.0)
     args = ap.parse_args()
 

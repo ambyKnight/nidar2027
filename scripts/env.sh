@@ -5,7 +5,7 @@
 #
 # ~/.bashrc sets all of this too, but only for INTERACTIVE shells - so a script started over ssh,
 # from cron, or from a `wsl.exe -- bash -lc ...` call gets none of it. That failure is quiet and
-# confusing: Gazebo cannot resolve practice_6x6.sdf without GZ_SIM_RESOURCE_PATH, so it tries to
+# confusing: Gazebo cannot resolve rooms_small_4.sdf without GZ_SIM_RESOURCE_PATH, so it tries to
 # download the name from Fuel, fails, and exits, leaving SITL and MAVROS running with no simulator
 # and every topic dead. Keep this file in step with the airmouse block in ~/.bashrc.
 source /opt/ros/jazzy/setup.bash

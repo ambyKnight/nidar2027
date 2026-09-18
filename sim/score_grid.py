@@ -4,7 +4,7 @@
 NIDAR: a cell counts only if ALL its sides (wall / opening) are mapped correctly.
 "unknown" or a missing cell counts as wrong.
 
-    python3 score_grid.py [--truth worlds/practice_6x6_truth.json] [--spawn-yaw 90] [--json saved_grid.json]
+    python3 score_grid.py [--truth worlds/rooms_small_4_truth.json] [--spawn-yaw 90] [--json saved_grid.json]
 
 Without --json it grabs the latest /airmouse/grid message from ROS.
 Prints the true maze and our map side by side in the same ASCII format as the maze drawings
@@ -56,7 +56,7 @@ def world_to_map(spawn_yaw_deg):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--truth", default=str(Path(__file__).parent / "worlds/practice_6x6_truth.json"))
+    ap.add_argument("--truth", default=str(Path(__file__).parent / "worlds/rooms_small_4_truth.json"))
     ap.add_argument("--spawn-yaw", type=float, default=90.0)
     ap.add_argument("--json", help="score a saved /airmouse/grid JSON file instead of the live topic")
     args = ap.parse_args()

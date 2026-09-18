@@ -33,7 +33,7 @@ Build after adding a node or changing `setup.py` (edits to an existing `.py` nee
 
 ## Fly a full autonomous mission (the main test)
 
-    bash ~/airmouse_ws/sim/test_explore.sh                            # practice_6x6.sdf, 600 s budget
+    bash ~/airmouse_ws/sim/test_explore.sh                            # rooms_small_4.sdf, 600 s budget
     bash ~/airmouse_ws/sim/test_explore.sh rooms_small_4.sdf 300      # another world, 300 s budget
     HEADLESS=1 bash ~/airmouse_ws/sim/test_explore.sh                 # no Gazebo window
 
@@ -56,13 +56,15 @@ If that passes and a flight fails, the problem is flying or SLAM, not searching.
 
 Two generators, both write `sim/worlds/<name>.sdf` and `<name>_truth.json` (true walls, for scoring):
 
-    python3 sim/make_maze.py sim/mazes/practice_6x6.txt          # ASCII maze drawing -> world
+    python3 sim/make_maze.py sim/mazes/rooms_small_4.txt         # ASCII maze drawing -> world
     python3 sim/make_rooms.py --seed 4 --wide 3 --depth 10 --name rooms_small_4
     python3 sim/make_rooms.py --seed 1                           # default: 7 rooms wide, 34x16 m, 22 rooms
 
 `make_rooms.py` builds a building of rooms (3-8 m a side) with 1 m doors at random spots; a random
 spanning tree guarantees every room is reachable and some walls get extra doors. Same seed = same building.
-Worlds so far: `practice_6x6` (the maze), `rooms_small_4` (12x10 m, first-flight size), `rooms_1` (big).
+Worlds: `rooms_small_4` (12x10 m, the default: big rooms and 1 m walls, the NIDAR arena style and within its
+15x15 m limit), `rooms_small_3`/`rooms_small_5` (18 and 20 m long - bigger than NIDAR allows), `rooms_1` (34x16 m,
+stress test). The hand-drawn `practice_6x6` corridor maze was removed on 2026-09-18: it is not what the arena looks like.
 
 `python3 sim/make_iris_lidar.py` regenerates the drone model (re-run after editing it, then restart the sim).
 LiDAR view: `rviz2 -d ~/airmouse_ws/sim/rviz/scan.rviz`.

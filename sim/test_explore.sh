@@ -2,6 +2,9 @@
 # End-to-end test of AUTONOMOUS exploration: the drone is told nothing about the maze.
 #
 #   sim/test_explore.sh [world.sdf] [mission_timeout_s]     (Gazebo window on; HEADLESS=1 to hide it)
+#   EXPLORER_ARGS="-p settle_time:=1.0 -p drift_penalty:=1.0" sim/test_explore.sh    (extra explorer parameters)
+#
+# Default world: rooms_small_4 (12 x 10 m, big rooms and 1 m walls - the NIDAR arena style, within its 15 x 15 m).
 #
 # Unlike the plan_tour.py runs, no route is computed in advance - the explorer reads only
 # /airmouse/grid, the map it is building as it flies. At the end we score that map like the judges.
@@ -15,7 +18,8 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 source "$HERE/../scripts/env.sh"          # ~/.bashrc is interactive-only; see that file
 set -u
 
-WORLD=${1:-practice_6x6.sdf}
+WORLD=${1:-rooms_small_4.sdf}
+EXPLORER_ARGS=${EXPLORER_ARGS:-}
 MISSION_TIMEOUT=${2:-600}
 OUT=/tmp/airmouse_sim/explore
 BIN=$HOME/airmouse_ws/install/airmouse/lib/airmouse
@@ -98,9 +102,9 @@ CPU_PID=$!
 python3 -u "$HERE/slam_eval.py" --idle 100000 --csv "$OUT/slam_eval.csv" > "$OUT/slam_eval.txt" 2>&1 &
 EVAL_PID=$!
 
-echo "=== [5/6] EXPLORING (no prior knowledge) $(date +%H:%M:%S)"
+echo "=== [5/6] EXPLORING (no prior knowledge) $(date +%H:%M:%S)${EXPLORER_ARGS:+  args: $EXPLORER_ARGS}"
 timeout -k 15 "$((MISSION_TIMEOUT + 180))" "$BIN/explorer" --ros-args \
-    -p use_sim_time:=true -p altitude:=1.2 -p mission_timeout:="$MISSION_TIMEOUT.0" \
+    -p use_sim_time:=true -p altitude:=1.2 -p mission_timeout:="$MISSION_TIMEOUT.0" $EXPLORER_ARGS \
     2>&1 | tee "$OUT/explorer.log"
 rc=${PIPESTATUS[0]}
 echo "explorer exit code: $rc"
@@ -124,6 +128,8 @@ echo
 echo "=== summary ==="
 grep -E "(step|backtrack|exploration|home again|out of time|ABORT)" "$OUT/explorer.log" | tail -10
 grep -m1 "visited .* cells:" "$OUT/explorer.log"
+grep -m1 -o "mission time: .*" "$OUT/explorer.log" || echo "mission time: none (never landed normally)"
+[ -n "$EXPLORER_ARGS" ] && echo "explorer args: $EXPLORER_ARGS"
 echo "WALL GUARD fired: $(grep -c "WALL GUARD:" "$OUT/explorer.log" 2>/dev/null || echo 0) times"
 echo "camera decisions: $(grep -c "camera:" "$OUT/explorer.log" 2>/dev/null || echo 0)"
 echo "picture: $OUT/path.png"

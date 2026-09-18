@@ -681,7 +681,11 @@
       <sensor name="tof_front" type="gpu_lidar">
         <gz_frame_id>tof_front_link</gz_frame_id>
         <topic>tof_front</topic>
-        <update_rate>20</update_rate>
+        <!-- 10 Hz, not 20: each gpu_lidar costs a GPU render. At 20 Hz the four ToF asked for 80 renders/s on top
+             of the LiDAR's 10, and when the sim ran fast (73% real time) ~40% of /scan never arrived - Cartographer
+             starved and slipped whole cells (the aborted rooms_small_4 run, 2026-09-18). 10 Hz still samples every
+             10 cm at 1 m/s, which is what the wall guard needs. -->
+        <update_rate>10</update_rate>
         <always_on>true</always_on>
         <lidar>
           <scan>
@@ -710,7 +714,11 @@
       <sensor name="tof_left" type="gpu_lidar">
         <gz_frame_id>tof_left_link</gz_frame_id>
         <topic>tof_left</topic>
-        <update_rate>20</update_rate>
+        <!-- 10 Hz, not 20: each gpu_lidar costs a GPU render. At 20 Hz the four ToF asked for 80 renders/s on top
+             of the LiDAR's 10, and when the sim ran fast (73% real time) ~40% of /scan never arrived - Cartographer
+             starved and slipped whole cells (the aborted rooms_small_4 run, 2026-09-18). 10 Hz still samples every
+             10 cm at 1 m/s, which is what the wall guard needs. -->
+        <update_rate>10</update_rate>
         <always_on>true</always_on>
         <lidar>
           <scan>
@@ -739,7 +747,11 @@
       <sensor name="tof_back" type="gpu_lidar">
         <gz_frame_id>tof_back_link</gz_frame_id>
         <topic>tof_back</topic>
-        <update_rate>20</update_rate>
+        <!-- 10 Hz, not 20: each gpu_lidar costs a GPU render. At 20 Hz the four ToF asked for 80 renders/s on top
+             of the LiDAR's 10, and when the sim ran fast (73% real time) ~40% of /scan never arrived - Cartographer
+             starved and slipped whole cells (the aborted rooms_small_4 run, 2026-09-18). 10 Hz still samples every
+             10 cm at 1 m/s, which is what the wall guard needs. -->
+        <update_rate>10</update_rate>
         <always_on>true</always_on>
         <lidar>
           <scan>
@@ -768,7 +780,11 @@
       <sensor name="tof_right" type="gpu_lidar">
         <gz_frame_id>tof_right_link</gz_frame_id>
         <topic>tof_right</topic>
-        <update_rate>20</update_rate>
+        <!-- 10 Hz, not 20: each gpu_lidar costs a GPU render. At 20 Hz the four ToF asked for 80 renders/s on top
+             of the LiDAR's 10, and when the sim ran fast (73% real time) ~40% of /scan never arrived - Cartographer
+             starved and slipped whole cells (the aborted rooms_small_4 run, 2026-09-18). 10 Hz still samples every
+             10 cm at 1 m/s, which is what the wall guard needs. -->
+        <update_rate>10</update_rate>
         <always_on>true</always_on>
         <lidar>
           <scan>
