@@ -5,10 +5,14 @@
 # Matches full command lines (process names are cut to 15 chars, so -x would miss e.g.
 # cartographer_occupancy_grid_node). Never kills its own ancestors (the shell/script that called it,
 # whose command line may mention these names).
+# "airmouse/lib/airmouse" matches EVERY node of our package by its install path, present and future. Listing
+# nodes by name is how eight survivor_tagger processes survived every run on 2026-09-18 (that node was added
+# after this list was written): they piled up for two hours, ate the CPU, and Gazebo then dropped 90% of the
+# LiDAR scans - which starves SLAM, and a starved SLAM flies the drone into walls. Never list our nodes by name.
 PATTERNS=("[g]z sim" "[b]in/arducopter" "[m]avros_node" "[r]os2 launch mavros" "[r]os2 launch airmouse"
           "[p]arameter_bridge" "[c]artographer_node" "[c]artographer_occupancy_grid_node"
-          "[s]tatic_transform_publisher" "[s]lam_to_mavros" "[g]rid_mapper" "[f]ly_square" "[c]ompare_pose.py"
-          "[s]lam_eval.py" "[c]lock_relay.py"
+          "[s]tatic_transform_publisher" "[a]irmouse/lib/airmouse" "[f]ly_square" "[c]ompare_pose.py"
+          "[s]lam_eval.py" "[c]lock_relay.py" "[r]viz2"
           "[b]in/ros2 topic" "[b]in/ros2 service" "[b]in/ros2 run" "[t]f2_echo" "[b]in/ros2 bag")
 
 # PIDs of this script and everything above it - never touch these

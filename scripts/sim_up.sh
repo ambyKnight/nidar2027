@@ -52,7 +52,11 @@ if [ -z "$GZ_ARGS" ]; then
 fi
 
 echo "Starting ArduPilot SITL (physics from Gazebo) ..."
-(cd ~/ardupilot && build/sitl/bin/arducopter --model JSON --defaults "$PARAMS" \
+# -w WIPES the parameter EEPROM first. SITL keeps parameters in ~/ardupilot/eeprom.bin BETWEEN RUNS, and those
+# take precedence over --defaults, so without this a flight runs on whatever every previous session left behind
+# (2026-09-18: a day of runs accumulated settings, and re-flying the exact code of the best run did not reproduce
+# it). Every flight must start from sim/params/*.parm alone, or no result means anything.
+(cd ~/ardupilot && build/sitl/bin/arducopter --model JSON -w --defaults "$PARAMS" \
     -I0 > "$LOGS/sitl.log" 2>&1 &)
 sleep 3
 
