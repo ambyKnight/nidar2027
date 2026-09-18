@@ -1,0 +1,210 @@
+#!/usr/bin/env python3
+"""Turn an ASCII maze drawing into a Gazebo world (plus a ground-truth wall file).
+
+Drawing format (see mazes/practice_6x6.txt): every cell is 3 characters wide.
+    +--+--+      '+'  corner post
+    |     |      '--' wall on a cell's top/bottom edge, '  ' = opening
+    +  +--+      '|'  wall on a cell's left/right edge,  ' ' = opening
+A gap in the outer wall is the entrance/exit. The drone spawns in that cell, which is
+the world origin (0, 0), facing into the maze. World +y = north (up the drawing).
+
+Usage:
+    python3 make_maze.py mazes/practice_6x6.txt
+writes worlds/practice_6x6.sdf and worlds/practice_6x6_truth.json
+"""
+import argparse
+import json
+from collections import deque
+from pathlib import Path
+
+CELL = 1.0          # metres per grid cell (NIDAR arena is on a 1 m grid)
+WALL_T = 0.05       # wall thickness, m
+WALL_H = 2.44       # 8 ft clearance
+SPAWN_Z = 0.195     # iris landing-gear height
+
+
+def parse(path):
+    lines = [l.rstrip("\n") for l in Path(path).read_text().splitlines() if l.strip()]
+    rows = (len(lines) - 1) // 2
+    cols = (max(len(l) for l in lines) - 1) // 3
+    lines = [l.ljust(cols * 3 + 1) for l in lines]
+    # h[r][c]: wall on the top edge of cell (r, c); r runs 0..rows (row `rows` = bottom edge)
+    h = [[lines[2 * r][3 * c + 1:3 * c + 3] == "--" for c in range(cols)] for r in range(rows + 1)]
+    # v[r][c]: wall on the left edge of cell (r, c); c runs 0..cols (col `cols` = right edge)
+    v = [[lines[2 * r + 1][3 * c] == "|" for c in range(cols + 1)] for r in range(rows)]
+    return rows, cols, h, v
+
+
+def find_entrance(rows, cols, h, v):
+    """Return (row, col, yaw_deg) of the first gap in the outer wall; yaw faces into the maze."""
+    for c in range(cols):
+        if not h[rows][c]:
+            return rows - 1, c, 90      # bottom edge -> face north
+        if not h[0][c]:
+            return 0, c, -90            # top edge -> face south
+    for r in range(rows):
+        if not v[r][0]:
+            return r, 0, 0              # left edge -> face east
+        if not v[r][cols]:
+            return r, cols - 1, 180     # right edge -> face west
+    raise SystemExit("No entrance: the outer wall has no gap")
+
+
+def cell_walls(r, c, h, v):
+    return {"N": h[r][c], "S": h[r + 1][c], "W": v[r][c], "E": v[r][c + 1]}
+
+
+def reachable(rows, cols, h, v, start):
+    seen, todo = {start}, deque([start])
+    while todo:
+        r, c = todo.popleft()
+        w = cell_walls(r, c, h, v)
+        for d, (dr, dc) in {"N": (-1, 0), "S": (1, 0), "W": (0, -1), "E": (0, 1)}.items():
+            nr, nc = r + dr, c + dc
+            if not w[d] and 0 <= nr < rows and 0 <= nc < cols and (nr, nc) not in seen:
+                seen.add((nr, nc))
+                todo.append((nr, nc))
+    return seen
+
+
+def runs(flags):
+    """[F,T,T,F,T] -> [(1,3),(4,5)]: merge neighbouring wall pieces into one long wall."""
+    out, start = [], None
+    for i, f in enumerate(flags + [False]):
+        if f and start is None:
+            start = i
+        elif not f and start is not None:
+            out.append((start, i))
+            start = None
+    return out
+
+
+def box(name, x, y, sx, sy, sz, rgba, collide=True):
+    collision = (f"<collision name='c'><geometry><box><size>{sx} {sy} {sz}</size></box></geometry></collision>"
+                 if collide else "")
+    return (f"<link name='{name}'><pose>{x:.3f} {y:.3f} {sz / 2:.3f} 0 0 0</pose>{collision}"
+            f"<visual name='v'><geometry><box><size>{sx} {sy} {sz}</size></box></geometry>"
+            f"<material><ambient>{rgba}</ambient><diffuse>{rgba}</diffuse></material></visual></link>")
+
+
+def build_world(name, rows, cols, h, v, er, ec, yaw):
+    # cell (r, c) centre -> world (x, y), with the entrance cell at the origin
+    def gx(c_line):  # x of the vertical grid line on the left of column c_line
+        return (c_line - ec - 0.5) * CELL
+
+    def gy(r_line):  # y of the horizontal grid line above row r_line
+        return (er - r_line + 0.5) * CELL
+
+    links = []
+    for r, flags in enumerate(h):
+        for a, b in runs(flags):
+            length = (b - a) * CELL + WALL_T
+            links.append(box(f"h{r}_{a}", (gx(a) + gx(b)) / 2, gy(r), length, WALL_T, WALL_H, "0.75 0.7 0.6 1"))
+    for c in range(cols + 1):
+        for a, b in runs([v[r][c] for r in range(rows)]):
+            length = (b - a) * CELL + WALL_T
+            links.append(box(f"v{c}_{a}", gx(c), (gy(a) + gy(b)) / 2, WALL_T, length, WALL_H, "0.75 0.7 0.6 1"))
+    # thin floor lines showing the 1 m reference grid (visual only)
+    for r in range(rows + 1):
+        links.append(box(f"gh{r}", (gx(0) + gx(cols)) / 2, gy(r), cols * CELL, 0.01, 0.002, "0.2 0.2 0.8 1", False))
+    for c in range(cols + 1):
+        links.append(box(f"gv{c}", gx(c), (gy(0) + gy(rows)) / 2, 0.01, rows * CELL, 0.002, "0.2 0.2 0.8 1", False))
+
+    ground = max(60, 2 * (max(rows, cols) + 5))    # big room-buildings outgrow the fixed 60 m plane
+
+    return f"""<?xml version="1.0" ?>
+<!-- Generated by make_maze.py - edit the .txt drawing, not this file -->
+<sdf version="1.9">
+  <world name="{name}">
+    <physics name="1ms" type="ignore">
+      <max_step_size>0.001</max_step_size>
+      <real_time_factor>1.0</real_time_factor>
+    </physics>
+    <plugin filename="gz-sim-physics-system" name="gz::sim::systems::Physics"/>
+    <plugin filename="gz-sim-sensors-system" name="gz::sim::systems::Sensors">
+      <render_engine>ogre2</render_engine>
+    </plugin>
+    <plugin filename="gz-sim-user-commands-system" name="gz::sim::systems::UserCommands"/>
+    <plugin filename="gz-sim-scene-broadcaster-system" name="gz::sim::systems::SceneBroadcaster"/>
+    <plugin filename="gz-sim-imu-system" name="gz::sim::systems::Imu"/>
+    <plugin filename="gz-sim-navsat-system" name="gz::sim::systems::NavSat"/>
+
+    <scene>
+      <ambient>0.8 0.8 0.8</ambient>
+      <background>0.8 0.8 0.8</background>
+    </scene>
+    <spherical_coordinates>
+      <latitude_deg>-35.363262</latitude_deg>
+      <longitude_deg>149.165237</longitude_deg>
+      <elevation>584</elevation>
+      <heading_deg>0</heading_deg>
+      <surface_model>EARTH_WGS84</surface_model>
+    </spherical_coordinates>
+    <light type="directional" name="sun">
+      <cast_shadows>false</cast_shadows>
+      <pose>0 0 10 0 0 0</pose>
+      <diffuse>0.9 0.9 0.9 1</diffuse>
+      <direction>-0.3 0.2 -0.9</direction>
+    </light>
+
+    <model name="ground">
+      <static>true</static>
+      <link name="link">
+        <collision name="c"><geometry><plane><normal>0 0 1</normal><size>{ground} {ground}</size></plane></geometry></collision>
+        <visual name="v"><geometry><plane><normal>0 0 1</normal><size>{ground} {ground}</size></plane></geometry>
+          <material><ambient>0.55 0.55 0.55 1</ambient><diffuse>0.55 0.55 0.55 1</diffuse></material></visual>
+      </link>
+    </model>
+
+    <model name="maze">
+      <static>true</static>
+      {chr(10).join('      ' + l for l in links).strip()}
+    </model>
+
+    <include>
+      <uri>model://iris_lidar</uri>
+      <pose degrees="true">0 0 {SPAWN_Z} 0 0 {yaw}</pose>
+    </include>
+  </world>
+</sdf>
+"""
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("drawing", help="ASCII maze .txt file")
+    args = ap.parse_args()
+
+    src = Path(args.drawing)
+    name = src.stem
+    rows, cols, h, v = parse(src)
+    er, ec, yaw = find_entrance(rows, cols, h, v)
+
+    seen = reachable(rows, cols, h, v, (er, ec))
+    unreachable = [(r, c) for r in range(rows) for c in range(cols) if (r, c) not in seen]
+
+    out_dir = Path(__file__).parent / "worlds"
+    out_dir.mkdir(exist_ok=True)
+    (out_dir / f"{name}.sdf").write_text(build_world(name, rows, cols, h, v, er, ec, yaw))
+
+    # Ground truth for scoring our generated map later (like the organisers' reference grid).
+    # Cells are named by (row, col) from the top-left of the drawing.
+    truth = {
+        "cell_size_m": CELL,
+        "rows": rows, "cols": cols,
+        "entrance": {"row": er, "col": ec, "world_xy": [0.0, 0.0]},
+        "cells": {f"{r},{c}": {**cell_walls(r, c, h, v),
+                               "world_xy": [round((c - ec) * CELL, 3), round((er - r) * CELL, 3)]}
+                  for r in range(rows) for c in range(cols)},
+    }
+    (out_dir / f"{name}_truth.json").write_text(json.dumps(truth, indent=1))
+
+    print(f"{name}: {rows}x{cols} cells, entrance at row {er} col {ec}, drone faces {yaw} deg")
+    print(f"  reachable cells: {len(seen)}/{rows * cols}")
+    if unreachable:
+        print(f"  WARNING unreachable cells: {unreachable}")
+    print(f"  wrote {out_dir / (name + '.sdf')} and {name}_truth.json")
+
+
+if __name__ == "__main__":
+    main()

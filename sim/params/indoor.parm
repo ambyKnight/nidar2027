@@ -1,0 +1,23 @@
+# AirMouse indoor flight settings - always used in the maze (with or without GPS).
+
+# Fly on the REAL navigation filter (EKF3), like the physical flight controller.
+# SITL otherwise defaults to AHRS_EKF_TYPE 10 = "cheat with simulator ground truth", which
+# silently ignored SLAM (found 2026-09-18: targets came out rotated 90 deg).
+AHRS_EKF_TYPE 3
+
+# Cruise speed. Was 0.5 m/s / 1.0 m/s^2 (slow and gentle, "SLAM and the camera need this"): that made travel
+# the biggest chunk of a mission (2026-09-18: ~60 m flown at 0.5 m/s = 120 s of a 159 s flight) and SLAM
+# tracked to 0.03 m at that speed in rooms. 1.0 m/s is the first step up; go higher only after a flight
+# shows SLAM error and wall clearance still hold. The survivor camera (not built yet) may want a lower
+# speed while it looks - set it per phase then.
+# (ArduPilot 4.7+ renamed WPNAV_SPEED etc. to WP_SPD etc. and switched to m/s)
+WP_SPD 1.0
+WP_ACC 2.0
+WP_SPD_UP 1.0
+WP_SPD_DN 0.5
+
+# Landing. ArduPilot waits DISARM_DELAY (default 10 s!) after touchdown before disarming - that was most of a
+# 16 s landing from 1.2 m. LAND_SPD_HIGH_MS is the descent speed above the final stage (0 = use WP_SPD_DN);
+# the last stage keeps the gentle LAND_SPD_MS default of 0.5 m/s.
+DISARM_DELAY 3
+LAND_SPD_HIGH_MS 1.0

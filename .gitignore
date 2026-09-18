@@ -1,0 +1,29 @@
+# ROS 2 colcon build artifacts
+build/
+install/
+log/
+
+# Simulation test runs and flight data
+sim/runs/
+sim/replay_out/
+sim/bag_run6/
+*.mcap
+*.db3
+
+# Python bytecode & cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.pytest_cache/
+
+# Temporary and log files
+*.log
+/tmp/airmouse_sim/
+
+# Editor & OS files
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store

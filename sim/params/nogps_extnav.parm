@@ -1,0 +1,23 @@
+# AirMouse: fly WITHOUT GPS. Position and heading come from LiDAR SLAM (Cartographer),
+# sent by our slam_to_mavros node -> MAVROS /mavros/vision_pose/pose -> VISION_POSITION_ESTIMATE.
+# The same settings go on the real flight controller later.
+
+# no GPS at all
+GPS1_TYPE 0
+
+# accept external navigation (vision) messages over MAVLink
+VISO_TYPE 1
+
+# EKF3 source set 1: horizontal position + yaw from ExtNav (6), height from barometer (1)
+EK3_SRC1_POSXY 6
+EK3_SRC1_VELXY 0
+EK3_SRC1_POSZ 1
+EK3_SRC1_VELZ 0
+EK3_SRC1_YAW 6
+
+# compass is unreliable indoors; SLAM gives us heading
+COMPASS_USE 0
+COMPASS_USE2 0
+COMPASS_USE3 0
+
+# (indoor speed limits live in indoor.parm, which sim_up.sh always loads)
