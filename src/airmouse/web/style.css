@@ -316,8 +316,12 @@ html, body {
 }
 
 .tof-box.safe { border-color: #059669; }
+.tof-box.safe .tof-val { color: #34d399; }
 .tof-box.warn { border-color: var(--accent-yellow); background: rgba(234, 179, 8, 0.1); }
-.tof-box.danger { border-color: var(--accent-red); background: rgba(239, 68, 68, 0.15); }
+.tof-box.warn .tof-val { color: var(--accent-yellow); }
+.tof-box.danger { border-color: var(--accent-red); background: rgba(239, 68, 68, 0.25); box-shadow: 0 0 8px rgba(239, 68, 68, 0.4); }
+.tof-box.danger .tof-val { color: var(--accent-red); font-weight: 800; }
+.tof-box.danger .tof-label { color: #fca5a5; }
 
 .tof-label {
   font-size: 9px;

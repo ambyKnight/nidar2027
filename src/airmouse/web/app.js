@@ -266,8 +266,8 @@ function handleExplorerMessage(msgData) {
     
     // Update ToF Sensors
     if (data.tof) {
-      updateTofDisplay("fwd", data.tof.forward ?? data.tof.fwd, el.tofFwd, el.tofFwdBox);
-      updateTofDisplay("bwd", data.tof.backward ?? data.tof.bwd, el.tofBwd, el.tofBwdBox);
+      updateTofDisplay("front", data.tof.front ?? data.tof.forward ?? data.tof.fwd, el.tofFwd, el.tofFwdBox);
+      updateTofDisplay("back", data.tof.back ?? data.tof.backward ?? data.tof.bwd, el.tofBwd, el.tofBwdBox);
       updateTofDisplay("left", data.tof.left, el.tofLeft, el.tofLeftBox);
       updateTofDisplay("right", data.tof.right, el.tofRight, el.tofRightBox);
     }
@@ -285,9 +285,9 @@ function updateTofDisplay(side, val, valEl, boxEl) {
   const dist = typeof val === "number" ? val : parseFloat(val);
   valEl.textContent = `${dist.toFixed(2)} m`;
   boxEl.className = "tof-box";
-  if (dist < 0.25) {
+  if (dist < 0.30) {
     boxEl.classList.add("danger");
-  } else if (dist < 0.45) {
+  } else if (dist < 0.50) {
     boxEl.classList.add("warn");
   } else {
     boxEl.classList.add("safe");
