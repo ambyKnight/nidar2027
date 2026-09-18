@@ -266,7 +266,7 @@ SLAM, and the run hangs. The experiment script was removed 2026-09-18 (archived 
 
 **Simulation realism**
 - Stock Iris collides as ~64 cm wide (15 cm clearance per side in a 1 m corridor); our real 5-inch with
-  guards is ~35 cm (~33 cm clearance). `iris_standoffs_5in` keeps Iris physics with a 35 cm footprint.
+  guards is ~35 cm (~33 cm clearance). `iris_standoffs_airmouse` keeps Iris physics with a 35 cm footprint.
   **2026-09-18: the real drone is 330 mm tip to tip including guards, 1.3 kg** (earlier 5"/35 cm figures are
   superseded). The sim box is now 23.3 cm square (33 cm diagonal: ~38 cm clearance per side, ~33 cm turned 45 deg),
   the body mass is set so the model totals 1.3 kg, inertia scaled by mass only. Motors/thrust are still the Iris's,

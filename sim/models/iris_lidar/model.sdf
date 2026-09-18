@@ -2,7 +2,7 @@
 <sdf version="1.9">
   <model name="iris_lidar">
     <include>
-      <uri>model://iris_standoffs_5in</uri>
+      <uri>model://iris_standoffs_airmouse</uri>
     </include>
 
     <!--

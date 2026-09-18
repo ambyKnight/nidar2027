@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Create models/iris_lidar: ArduPilot's iris_with_ardupilot drone plus a 360 deg 2D LiDAR on top and a
-ToF range sensor on each of the 4 edges, built on models/iris_standoffs_5in (Iris motors and flight physics,
+ToF range sensor on each of the 4 edges, built on models/iris_standoffs_airmouse (Iris motors and flight physics,
 but the collision size and mass of our real drone: 330 mm tip to tip including guards, 1.3 kg).
 
 The LiDAR mimics an LDRobot LD19: 10 Hz, 450 points per turn, 0.05-12 m range, ~1 cm noise.
@@ -145,7 +145,7 @@ CONFIG = """<?xml version="1.0"?>
 
 
 FRAME_SRC = Path.home() / "ardupilot_gazebo/models/iris_with_standoffs/model.sdf"
-FRAME_OUT = Path(__file__).parent / "models/iris_standoffs_5in"
+FRAME_OUT = Path(__file__).parent / "models/iris_standoffs_airmouse"
 
 FRAME_CONFIG = """<?xml version="1.0"?>
 <model>
@@ -200,7 +200,7 @@ def main():
     sdf = SRC.read_text()
     sdf = sdf.replace('<model name="iris_with_ardupilot">', '<model name="iris_lidar">', 1)
     # use the small-footprint frame (its inner model name stays iris_with_standoffs, so plugins still match)
-    sdf = sdf.replace("<uri>model://iris_with_standoffs</uri>", "<uri>model://iris_standoffs_5in</uri>")
+    sdf = sdf.replace("<uri>model://iris_with_standoffs</uri>", "<uri>model://iris_standoffs_airmouse</uri>")
     first_plugin = sdf.index("<plugin")
     # insert before the first plugin, at the start of that line
     line_start = sdf.rfind("\n", 0, first_plugin) + 1
