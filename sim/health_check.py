@@ -35,8 +35,7 @@ from tf2_ros import Buffer, TransformException, TransformListener
 CHECKS = [("/clock", Clock), ("/scan", LaserScan), ("/map", OccupancyGrid),
           ("/mavros/vision_pose/pose", PoseStamped), ("/mavros/state", State),
           ("/model/iris_lidar/pose", PoseStamped),  # sim ground truth
-          ("/airmouse/tof/front", LaserScan), ("/airmouse/tof/back", LaserScan),   # edge ToF (wall guard)
-          ("/airmouse/tof/left", LaserScan), ("/airmouse/tof/right", LaserScan)]
+          ("/airmouse/range_front", LaserScan)]   # forward rangefinder (TFmini Plus)
 
 
 def main():
@@ -59,8 +58,8 @@ def main():
                 t = msg.clock.sec + msg.clock.nanosec * 1e-9
                 sim_span.setdefault("first", t)
                 sim_span["last"] = t
-        qos = qos_profile_sensor_data if name in ("/scan", "/clock", "/model/iris_lidar/pose") \
-            or name.startswith("/airmouse/tof/") else 10
+        qos = qos_profile_sensor_data if name in ("/scan", "/clock", "/model/iris_lidar/pose",
+                                                  "/airmouse/range_front") else 10
         node.create_subscription(kind, name, cb, qos)
     buf = Buffer()
     TransformListener(buf, node)
@@ -108,7 +107,7 @@ def main():
         healthy &= ok
         # sensors are configured in SIM time; dividing by the real-time factor un-does the slow-motion so the
         # number can be compared with the 10 Hz the sensor is supposed to produce
-        per_sim = f"  = {rate / rtf:5.1f} /sim-s" if rtf > 0 and name.startswith(("/scan", "/airmouse/tof")) else ""
+        per_sim = f"  = {rate / rtf:5.1f} /sim-s" if rtf > 0 and name.startswith(("/scan", "/airmouse/range")) else ""
         print(f"  {'OK  ' if ok else 'DEAD'} {name:<28} {rate:6.1f} msg/s{per_sim}")
     print(f"  {'OK  ' if tf_ok else 'DEAD'} {'TF map -> base_link':<28} {'found' if tf_ok else 'never found'}")
     healthy &= tf_ok > 0

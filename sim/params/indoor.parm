@@ -25,3 +25,8 @@ LAND_SPD_HIGH_MS 1.0
 # The sim drone weighs 1.3 kg (our real drone) but keeps the Iris motors, so it hovers well below the Iris's
 # 0.39. Start near it; ArduPilot learns the real value in flight (MOT_HOVER_LEARN).
 MOT_THST_HOVER 0.28
+
+# Flying on VELOCITY setpoints (explorer control:=velocity): keep the nose where we point it. The default
+# behaviour turns the drone to face the direction of travel, which would spin the 200 deg side cameras around
+# and invalidate the LiDAR sector the wall guard is watching.
+WP_YAW_BEHAVIOR 0

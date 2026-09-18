@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
 """Create models/iris_lidar: ArduPilot's iris_with_ardupilot drone plus a 360 deg 2D LiDAR on top and a
-ToF range sensor on each of the 4 edges, built on models/iris_standoffs_airmouse (Iris motors and flight physics,
+forward rangefinder, built on models/iris_standoffs_airmouse (Iris motors and flight physics,
 but the collision size and mass of our real drone: 330 mm tip to tip including guards, 1.3 kg).
 
 The LiDAR mimics an LDRobot LD19: 10 Hz, 450 points per turn, 0.05-12 m range, ~1 cm noise.
 It publishes on the Gazebo topic `scan` (bridged to the ROS topic /scan by sim_up.sh).
-The ToF sensors mimic a VL53L1X: 27 deg field of view, 0.04-4 m, 20 Hz, on Gazebo topics tof_front/back/left/right
-(bridged to /airmouse/tof/<side>; the explorer's wall guard uses them).
+The forward rangefinder mimics a Benewake TFmini Plus: 3.6 deg beam, 0.1-12 m, on the Gazebo topic `range_front`
+(bridged to /airmouse/range_front). It is the fast, narrow, dead-ahead check. The four VL53L1X-style ToF sensors on
+the frame edges were REMOVED on 2026-09-18: the 360 deg LiDAR already gives all-round distance and is just as
+independent of SLAM (it is the SLAM ESTIMATE that drifts, not the ranges), so the explorer's wall guard reads
+sectors of the raw /scan instead - four fewer GPU sensors for the same protection.
 The optical flow sensor is simulated by ArduPilot SITL itself (sim/params/optflow.parm), not by Gazebo.
 
 Usage:  python3 make_iris_lidar.py
@@ -24,53 +27,47 @@ DIAGONAL = 0.33                    # m, tip to tip INCLUDING prop guards (a squa
 FOOTPRINT = DIAGONAL / 2 ** 0.5    # m, side of the square collision box: 0.233
 TOTAL_MASS = 1.3                   # kg, all up
 LIDAR_MASS = 0.045
-TOF_MASS = 0.005
-# ToF sensors on the 4 edges: name -> yaw of the sensor relative to the nose (map frame +x at yaw 0)
-TOF = {"front": 0.0, "left": 1.5708, "back": 3.14159, "right": -1.5708}
-TOF_Z = 0.05       # m above the model origin: on the frame, under the LiDAR
+RANGE_MASS = 0.005
+RANGE_Z = 0.05     # m above the model origin: on the frame, under the LiDAR
+# The real TFmini Plus can be polled up to 1000 Hz. The sim runs it at 100: Gazebo renders a sensor per update and
+# 1000 Hz would cost ten times the GPU for no extra safety (at 1 m/s, 100 Hz already samples every centimetre).
+RANGE_HZ = 100
 
-TOF_TEMPLATE = """
-    <!-- ToF range sensor ({name}), VL53L1X-like -->
-    <link name="tof_{name}_link">
-      <pose>{x:.4f} {y:.4f} {z} 0 0 {yaw}</pose>
+RANGE_TEMPLATE = """
+    <!-- Forward rangefinder (Benewake TFmini Plus): 3.6 deg beam, 0.1-12 m, the fast dead-ahead check -->
+    <link name="range_front_link">
+      <pose>{x:.4f} 0 {z} 0 0 0</pose>
       <inertial>
         <mass>{mass}</mass>
         <inertia><ixx>1e-7</ixx><iyy>1e-7</iyy><izz>1e-7</izz><ixy>0</ixy><ixz>0</ixz><iyz>0</iyz></inertia>
       </inertial>
-      <sensor name="tof_{name}" type="gpu_lidar">
-        <gz_frame_id>tof_{name}_link</gz_frame_id>
-        <topic>tof_{name}</topic>
-        <!-- 10 Hz, not 20: each gpu_lidar costs a GPU render. At 20 Hz the four ToF asked for 80 renders/s on top
-             of the LiDAR's 10, and when the sim ran fast (73% real time) ~40% of /scan never arrived - Cartographer
-             starved and slipped whole cells (the aborted rooms_small_4 run, 2026-09-18). 10 Hz still samples every
-             10 cm at 1 m/s, which is what the wall guard needs. -->
-        <update_rate>10</update_rate>
+      <sensor name="range_front" type="gpu_lidar">
+        <gz_frame_id>range_front_link</gz_frame_id>
+        <topic>range_front</topic>
+        <update_rate>{hz}</update_rate>
         <always_on>true</always_on>
         <lidar>
           <scan>
-            <horizontal><samples>9</samples><resolution>1</resolution>
-              <min_angle>-0.2356</min_angle><max_angle>0.2356</max_angle></horizontal>
+            <horizontal><samples>3</samples><resolution>1</resolution>
+              <min_angle>-0.0314</min_angle><max_angle>0.0314</max_angle></horizontal>
             <vertical><samples>1</samples><resolution>1</resolution>
               <min_angle>0</min_angle><max_angle>0</max_angle></vertical>
           </scan>
-          <range><min>0.04</min><max>4.0</max><resolution>0.001</resolution></range>
-          <noise><type>gaussian</type><mean>0.0</mean><stddev>0.005</stddev></noise>
+          <range><min>0.10</min><max>12.0</max><resolution>0.01</resolution></range>
+          <noise><type>gaussian</type><mean>0.0</mean><stddev>0.01</stddev></noise>
         </lidar>
       </sensor>
     </link>
-    <joint name="tof_{name}_joint" type="fixed">
+    <joint name="range_front_joint" type="fixed">
       <parent>iris_with_standoffs::base_link</parent>
-      <child>tof_{name}_link</child>
+      <child>range_front_link</child>
     </joint>
 """
 
 
-def tof_sensors():
-    """One ToF on each edge, mounted at the edge of the collision box so it reads distance-to-wall directly."""
-    import math
-    edge = FOOTPRINT / 2
-    return "".join(TOF_TEMPLATE.format(name=n, x=edge * math.cos(yaw), y=edge * math.sin(yaw), z=TOF_Z,
-                                       yaw=yaw, mass=TOF_MASS) for n, yaw in TOF.items())
+def range_sensor():
+    """The single forward rangefinder, mounted at the front edge of the collision box."""
+    return RANGE_TEMPLATE.format(x=FOOTPRINT / 2, z=RANGE_Z, mass=RANGE_MASS, hz=RANGE_HZ)
 
 
 LIDAR = f"""
@@ -128,7 +125,7 @@ LIDAR = f"""
       <child>lidar_link</child>
     </joint>
     <!-- ===== end AirMouse LiDAR ===== -->
-{{TOF_SENSORS}}
+{{RANGE_SENSOR}}
 
     <!-- Ground truth for testing only: publish the model's true pose on /model/iris_lidar/pose
          (bridged to ROS by sim_up.sh) so we can measure SLAM error. The real drone has no such thing. -->
@@ -178,7 +175,7 @@ def make_small_frame():
     sdf = FRAME_SRC.read_text()
     masses = [float(m) for m in re.findall(r"<mass>([0-9.e-]+)</mass>", sdf)]
     body_old = masses[0]                                # base_link comes first
-    body = TOTAL_MASS - (sum(masses) - body_old) - LIDAR_MASS - len(TOF) * TOF_MASS
+    body = TOTAL_MASS - (sum(masses) - body_old) - LIDAR_MASS - RANGE_MASS
     ratio = body / body_old
     base = re.search(r"<link name='base_link'>.*?</inertial>", sdf, flags=re.S)
     block = re.sub(r"<mass>[0-9.e-]+</mass>", f"<mass>{body:.4f}</mass>", base.group(0), count=1)
@@ -212,7 +209,7 @@ def main():
     first_plugin = sdf.index("<plugin")
     # insert before the first plugin, at the start of that line
     line_start = sdf.rfind("\n", 0, first_plugin) + 1
-    sdf = sdf[:line_start] + LIDAR.replace("{TOF_SENSORS}", tof_sensors()) + sdf[line_start:]
+    sdf = sdf[:line_start] + LIDAR.replace("{RANGE_SENSOR}", range_sensor()) + sdf[line_start:]
 
     OUT.mkdir(parents=True, exist_ok=True)
     (OUT / "model.sdf").write_text(sdf)

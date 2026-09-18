@@ -3,6 +3,18 @@
 **Who this is for:** an agent working on its own to tune parameters. Read all of it before you start. Every
 rule under "Hard rules" comes from a run we lost or a crash we had (see NOTES.md).
 
+> ## READ THIS FIRST: a run is only valid if the machine is healthy
+> On 2026-09-18 a whole evening of flights was wasted on a bug that looked exactly like bad algorithms. Nodes
+> leaked from stopped runs (eight of them, the oldest alive for two hours), the load hit 12 of 16 cores, and
+> Gazebo silently DROPPED LiDAR SCANS. A starved Cartographer slips whole cells, the drone flies to where it
+> wrongly believes the cells are, and it hits a wall. The maps fell from 97% to ~25%, and re-flying the exact
+> code of the best run reproduced the failure - which is the only reason we stopped blaming the code.
+>
+> Before every run: `scripts/sim_down.sh` must print "nothing left running", and `pgrep -f airmouse/lib/airmouse`
+> must print nothing. During the run, the health check prints `LiDAR delivering X of 10 Hz (sim)`: it must be 9+.
+> The run now refuses to fly below 8. **If you ever see `scans are being dropped`, throw the run away. It measures
+> your machine's load, not your change.** Do not tune around it, and do not raise the thresholds to make it pass.
+
 ## The goal
 
 Cut the **mission time** on `rooms_small_4.sdf`: 12 x 10 m, 120 cells, big rooms joined by doors in 1 m walls. That
@@ -28,7 +40,11 @@ The competition scores the map (220 pts), survivors (240) and a safe exit (50). 
 25-point bonus. We are already well under 15 min, so **a run that is faster but maps worse is a regression**. So is
 one that is faster but crashes (-50). When in doubt, keep the slower, safer setting.
 
-## Baseline (2026-09-18, all defaults)
+## Baseline (2026-09-18, all defaults, BEFORE the starvation bug was found)
+
+**Caveat: this baseline was flown on a healthy machine but several later runs were not, so re-fly it first and
+use YOUR number.** It should reproduce now that the leak is fixed; if it does not, stop and report rather than
+tuning against a moving target.
 
 Run folder: `sim/runs/0918_201734` (defaults, 2026-09-18, ToF at 10 Hz).
 
@@ -121,6 +137,20 @@ In `sim/params/indoor.parm`: `WP_SPD 1.0` (m/s), `WP_ACC 2.0` (m/s^2).
    infrastructure problem, not a result. Rerun once. If it happens again, stop and report, don't tune around it.
 6. Git: work on branch `tuning/rooms` (create it from `main`). Commit the results table after every few
    runs. **Never push, never force, never rewrite history.** The user reviews and merges.
+
+## Known-unverified: three changes that never had a fair flight
+
+All three are in the code with their offline evidence, and all three were flown only while the machine was
+starved, so their flight results mean nothing. Re-measure them before judging - each is one run:
+
+| Change | Default | Offline evidence | What a fair flight would show |
+|---|---|---|---|
+| Manhattan map fit (`manhattan:=true`, grid_mapper) | on | `sim/test_grid_fit.py`: injected drifts of 3-9 deg and up to 0.45 m scored 42-83/120 raw and **120/120 fitted** | whether the map score survives real (non-rigid) drift |
+| Locality bias (`locality:=5.0`) | 5.0 | rooms_small_4 44 -> 37 moves, longest trip 13 -> 7 cells; rooms_small_5 89 -> 65, 25 -> 11 | flight time down, map unchanged |
+| Velocity control (`control:=velocity`) | **off** | none - it has never flown cleanly | it commanded <=1.4 m/s and truth measured 3.3 m/s, but that run was starved. Bring it up in a HOVER first, not a mission |
+
+Also unverified: that cutting the LiDAR from 450 to 230 points destroys SLAM (it did, in a starved run). Until
+someone re-measures it on a healthy machine, leave it at 450 - the comment in `make_iris_lidar.py` explains why.
 
 ## When you are done
 Leave:

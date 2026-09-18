@@ -54,6 +54,8 @@ Runs 1-6 used `plan_tour.py` (route from the true maze). Runs 7+ are autonomous.
 | 20 | LiDAR cut 450 -> 230 points (to save GPU), RViz2 on | **FAILED: SLAM came apart - yaw p95 68 deg, position max 18 m, map 46/120 (38%)**, while the LiDAR delivered a perfect 10 Hz. **Reverted.** The scan matcher needs point DENSITY to fix rotation; judging density by ray spacing at a range was wrong |
 | 21 | 450 points restored, RViz2 on | **CRASHED into a wall in the far room and aborted.** Truth: on the floor (z=0.12) at world (4.98, 9.32) from sim t=108 s to the end. Drift started ~25 s BEFORE impact (0.6 -> 5 m), so it flew into the wall believing it was elsewhere; SLAM then ran to 37 m while the drone lay still. Map 29/120 (24%), 6 guard firings. LiDAR 10.0-10.2 Hz throughout - NOT starvation this time |
 | 22 | **locality bias in `utility_step`** (score x exp(-cost/5)), RViz2 on | **Zig-zag fixed:** trips 1,3,7,6,3,1,6,5,3,9,2 cells (run 21: 7,10,14). Explored what it needed in 36 cells, no crash. But **map 31/120 (26%)**: SLAM drifted to 0.82 m (mean 0.21, yaw fine at 0.5 deg), and the mapper only snaps walls within +-0.25 m of a grid line. Aborted on the way home at 5 guard firings - all genuine: at 0.8 m of error the drone really was 4-12 cm from walls |
+| 23-27 | sensor swap (4 ToF -> 1 forward TFmini + raw-scan sectors), velocity control, Manhattan map fit, and two re-flights of the COMMITTED code | **All unusable - the machine was starved, see below.** Symptoms: drone flies into the wall ahead at 2-3 m/s, climbs past its altitude target, EKF error to 18 m while SLAM was accurate to 0.02 m, maps 22-26%. The committed code that scored 97% failed the same way, which is what finally pointed away from the algorithms |
+| 28 | **hover test** (`EXPLORER_ARGS="-p min_grid_updates:=99999 -p stuck_timeout:=240.0 -p settle_time:=240.0"`) - takes off, holds the takeoff cell, commands NO motion | **The diagnosis.** /scan fell 10 -> 0.9 Hz, the EKF reported 6.81 m/s for a hovering drone, and the map smeared from 28 to 416 cells. With nothing commanded, the whole estimate came apart - so this was never an exploration or control bug |
 | 16 | **NEW `frontier` explorer on the generated building `rooms_small_4`** (3 rooms wide, 12x10 m, 120 cells) | **Clean autonomous mission in ~2.5 min: 24 cells flown, all 120 mapped. Map 111/120 cells (92%), 462/480 sides (96%). SLAM error mean 0.028 m, max 0.063 m.** Landed, exit 0. First time the whole chain works. (Runs 14/15 never flew: 14 was the wrong world; 15 lost Gazebo at startup to the WSL GPU glitch - `sim_up.sh` now retries)
 | 17 | `rooms_small_4`, first flight with the 330 mm / 1.3 kg drone, 360° cameras, ToF guard and optical flow | **Clean mission, about 3 min: 120/120 cells mapped; 111/120 cells (92%) and 471/480 sides (98%) correct. SLAM error mean 0.05 m, max 0.13 m.** Guard fired 4 times falsely: the pose-difference speed read 1.4–1.9 m/s against a true 1.11 m/s. It now uses EKF velocity. Run folder: `sim/runs/0918_192850` |
 
@@ -78,6 +80,27 @@ penalty, so long straights beat staircases) and are flown in straight legs; a pa
 closes the next hop. `strategy:=dfs` restores the old tour of every cell. Offline (idealised line-of-sight model, WP_SPD 0.5 m/s):
 maze ~5.5 -> 2.5 min, rooms_small_4 17 -> 2.1 min, rooms_1 (544 cells) 79 -> 7.9 min. SLAM was FAR better in open rooms than in the
 narrow maze (0.03 m vs 1+ m), which fits the failure being specific to those corridors.
+
+**THE BUG OF THE DAY (2026-09-18): leaked nodes starved every run after the first few.** `sim_down.sh` killed
+our nodes BY NAME and the list predated `survivor_tagger`, so one leaked from every run that used it - eight were
+found alive, the oldest after two hours, with the load at 12 of 16 cores. Gazebo then could not render the LiDAR
+fast enough and DROPPED SCANS SILENTLY; a starved Cartographer slips whole cells, the EKF follows it, and the drone
+flies into walls. Everything from run 18 on is contaminated: runs 17 and 19 (92% and 97%) predate the leak.
+Measures now in place, all of them cheap:
+- `sim_down.sh` matches every node of the package by its INSTALL PATH (`airmouse/lib/airmouse`), never by name.
+- `test_explore.sh` traps INT/TERM/HUP as well as EXIT, so a killed run still cleans up, and warns if anything
+  of ours outlived the run.
+- The health check measures the DELIVERED LiDAR rate in sim time and the run now REFUSES TO FLY when scans are
+  being dropped, instead of producing another unusable flight.
+- `arducopter` starts with `-w`: SITL keeps parameters in `~/ardupilot/eeprom.bin` between runs and they override
+  `--defaults`, so flights were running on whatever earlier sessions left behind.
+- The explorer logs `LiDAR X.X Hz` every 5 s and warns under 6 Hz.
+**With the leaks cleared the simulator runs at 90% of real time instead of 38-50%.**
+
+**What this invalidates - re-measure before believing any of it:** that 230 LiDAR points destroys SLAM (run 20);
+that velocity control is unstable (run 24 measured 3.3 m/s against a commanded 1.4, which may have been starvation);
+and the Manhattan fit and locality bias have never had a fair flight. The offline evidence for all three still
+stands - it does not depend on the sim's health.
 
 **Two open problems after runs 20/21 (2026-09-18), both seen by the user in RViz:**
 1. **SLAM drift is now THE limiting factor, and it is not RViz.** Five runs on rooms_small_4, 450 points:

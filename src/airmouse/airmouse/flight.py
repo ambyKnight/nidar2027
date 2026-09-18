@@ -19,7 +19,7 @@ the known-good reference node; this is the same state machine with a mission hoo
 import math
 import time
 
-from geometry_msgs.msg import PoseStamped
+from geometry_msgs.msg import PoseStamped, TwistStamped
 from mavros_msgs.msg import State
 from mavros_msgs.srv import CommandBool, CommandTOL, SetMode, StreamRate
 from rclpy.node import Node
@@ -50,6 +50,7 @@ class CopterNode(Node):
         self.create_subscription(PoseStamped, "/mavros/local_position/pose",
                                  self.on_pose, qos_profile_sensor_data)
         self.target_pub = self.create_publisher(PoseStamped, "/mavros/setpoint_position/local", 10)
+        self.vel_pub = self.create_publisher(TwistStamped, "/mavros/setpoint_velocity/cmd_vel", 10)
         self.set_mode = self.create_client(SetMode, "/mavros/set_mode")
         self.arm = self.create_client(CommandBool, "/mavros/cmd/arming")
         self.takeoff = self.create_client(CommandTOL, "/mavros/cmd/takeoff")
@@ -73,6 +74,23 @@ class CopterNode(Node):
             target.pose.orientation.z = math.sin(yaw / 2.0)
             target.pose.orientation.w = math.cos(yaw / 2.0)
         self.target_pub.publish(target)
+
+    def go_velocity(self, vx, vy, vz=0.0, yaw_rate=0.0):
+        """Fly at a VELOCITY (m/s, map frame) instead of to a position.
+
+        A position target is only as good as the position estimate: when SLAM slipped 0.8 m the drone flew into a
+        wall believing it was centred (run 22). A velocity target says "go this way this fast", which is a command
+        we can close around the raw LiDAR ranges instead - and it is also what ArduPilot's own obstacle avoidance
+        acts on (mode_guided.cpp velaccel_control_run; it ignores position targets). Must be re-sent continuously.
+        """
+        cmd = TwistStamped()
+        cmd.header.stamp = self.get_clock().now().to_msg()
+        cmd.header.frame_id = "map"
+        cmd.twist.linear.x = float(vx)
+        cmd.twist.linear.y = float(vy)
+        cmd.twist.linear.z = float(vz)
+        cmd.twist.angular.z = float(yaw_rate)
+        self.vel_pub.publish(cmd)
 
     def distance_to(self, x, y, z=None):
         z = self.altitude if z is None else z

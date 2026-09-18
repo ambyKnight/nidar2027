@@ -63,18 +63,14 @@ sleep 3
 echo "Starting MAVROS ..."
 ros2 launch mavros apm.launch fcu_url:=tcp://127.0.0.1:5760 > "$LOGS/mavros.log" 2>&1 &
 
-echo "Starting Gazebo -> ROS bridge (/scan LiDAR, /airmouse/tof/* edge ToF, /clock sim time, /airmouse/imu on SIM time, /model/iris_lidar/pose truth) ..."
+echo "Starting Gazebo -> ROS bridge (/scan LiDAR, /airmouse/range_front, /clock sim time, /airmouse/imu on SIM time, /model/iris_lidar/pose truth) ..."
 ros2 run ros_gz_bridge parameter_bridge \
     /scan@sensor_msgs/msg/LaserScan[gz.msgs.LaserScan \
     /clock@rosgraph_msgs/msg/Clock[gz.msgs.Clock \
     /model/iris_lidar/pose@geometry_msgs/msg/PoseStamped[gz.msgs.Pose \
-    /tof_front@sensor_msgs/msg/LaserScan[gz.msgs.LaserScan \
-    /tof_back@sensor_msgs/msg/LaserScan[gz.msgs.LaserScan \
-    /tof_left@sensor_msgs/msg/LaserScan[gz.msgs.LaserScan \
-    /tof_right@sensor_msgs/msg/LaserScan[gz.msgs.LaserScan \
+    /range_front@sensor_msgs/msg/LaserScan[gz.msgs.LaserScan \
     /world/$WORLD_NAME/model/iris_lidar/model/iris_with_standoffs/link/imu_link/sensor/imu_sensor/imu@sensor_msgs/msg/Imu[gz.msgs.IMU \
-    --ros-args -r /tof_front:=/airmouse/tof/front -r /tof_back:=/airmouse/tof/back \
-    -r /tof_left:=/airmouse/tof/left -r /tof_right:=/airmouse/tof/right -r /world/$WORLD_NAME/model/iris_lidar/model/iris_with_standoffs/link/imu_link/sensor/imu_sensor/imu:=/airmouse/imu \
+    --ros-args -r /range_front:=/airmouse/range_front -r /world/$WORLD_NAME/model/iris_lidar/model/iris_with_standoffs/link/imu_link/sensor/imu_sensor/imu:=/airmouse/imu \
     > "$LOGS/bridge.log" 2>&1 &
 
 echo

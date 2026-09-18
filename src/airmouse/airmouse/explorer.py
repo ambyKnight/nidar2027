@@ -42,8 +42,12 @@ from airmouse.explore_logic import (camera_gain, corridor_penalty, frontier_step
 from airmouse.flight import CopterNode
 
 HOME = (0, 0)
-# ToF range sensors on the 4 edges of the frame: name -> direction relative to the nose (rad)
-TOF_SIDES = {"front": 0.0, "left": math.pi / 2, "back": math.pi, "right": -math.pi / 2}
+# Directions the wall guard watches, as sectors of the raw 360 deg scan: name -> bearing from the nose (rad).
+# The four edge ToF sensors were removed - the LiDAR's own ranges are just as independent of SLAM (it is the SLAM
+# ESTIMATE that drifts, not the ranges), and cost no extra GPU. /airmouse/range_front (TFmini Plus) adds a fast,
+# narrow, accurate check dead ahead, where a collision actually happens.
+GUARD_SIDES = {"front": 0.0, "left": math.pi / 2, "back": math.pi, "right": -math.pi / 2}
+SECTOR = math.radians(25)      # half-width of each sector: wide enough to see a wall the drone is sliding towards
 
 
 class Explorer(CopterNode):
@@ -108,10 +112,29 @@ class Explorer(CopterNode):
         # cells across). Offline: rooms_small_4 44 -> 37 moves (longest trip 13 -> 7 cells), rooms_small_5 89 -> 65
         # (25 -> 11), map and camera coverage unchanged at 100%. 0 restores the old behaviour.
         self.locality = self.declare_parameter("locality", 5.0).value
+        # "velocity": fly legs as VELOCITY commands closed around the raw LiDAR - speed along the leg, lateral
+        # correction that keeps the drone in the middle of the gap it is flying through, and a forward clamp from
+        # the range it can actually see. A position target is only as good as SLAM: when SLAM slipped 0.8 m the
+        # drone flew into a wall believing it was centred (run 22). Velocity targets are also the only kind
+        # ArduPilot's own avoidance acts on. "position" restores the old setpoint_position flight.
+        # DEFAULT IS "position" until velocity control is brought up properly. The first flight of
+        # control:=velocity (run 24) was unstable: commanded at most 1.4 m/s, Gazebo truth measured 3.3 m/s at
+        # 0.3 m altitude, the drone never held height (min 0.16 m), the guard fired 5 times in 40 s and the
+        # mission aborted. Suspects, in order: the 5 Hz mission tick is far too slow for an outer velocity loop;
+        # velocity setpoints sent while ArduPilot is still finishing its GUIDED takeoff; the z term; MAVROS frame
+        # conventions. None confirmed - it needs bring-up one piece at a time, not another full mission.
+        self.control = self.declare_parameter("control", "position").value
+        self.lat_gain = self.declare_parameter("lat_gain", 0.8).value        # m/s per metre off centre
+        self.lat_max = self.declare_parameter("lat_max", 0.4).value          # m/s of sideways correction
+        self.z_gain = self.declare_parameter("z_gain", 1.0).value
+        self.yaw_gain = self.declare_parameter("yaw_gain", 1.0).value
+        # a gap narrower than this on BOTH sides means we are in a corridor/doorway and should centre in it
+        self.corridor_wide = self.declare_parameter("corridor_wide", 1.4).value
+        self.escape_speed = self.declare_parameter("escape_speed", 0.4).value
         cam_hfov = self.declare_parameter("cam_hfov_deg", 360.0).value
         self.omni = cam_hfov >= 360.0
         self.cam_half_fov = math.radians(cam_hfov / 2.0)
-        # Wall guard on the 4 edge ToF sensors (/airmouse/tof/<side>). ArduPilot's own avoidance does NOT act
+        # Wall guard on sectors of the raw /scan (+ /airmouse/range_front dead ahead). ArduPilot's own avoidance does NOT act
         # on the position targets we send in GUIDED (only on velocity targets), so the guard is ours. It fires
         # when a sensor reads less than tof_stop PLUS the distance needed to brake from the current speed
         # towards that wall (v^2 / 2 brake_acc + v * tof_latency): at 1 m/s a 10 cm trigger alone is ~35 cm
@@ -160,11 +183,18 @@ class Explorer(CopterNode):
         self.going_home = False
         self.last_log = 0.0
         self.cam_seen = set()      # cells the camera has looked at (on our own map)
+        # grid_mapper classifies cells in a Manhattan-corrected frame and sends the transform with the grid;
+        # we fly in the SLAM frame, so every cell <-> position conversion goes through it
+        self.fit = (0.0, 0.0, 0.0)
         self.heading = 0.0         # yaw we hold, rad
         self.spin = []             # headings still to hold in the current spin
         self.spin_until = 0.0
         self.spun_at = None        # one spin per stop: the map growing DURING a spin must not start another
-        self.tof = {}              # side -> (range m, monotonic time)
+        self.tof = {}              # side -> nearest range in that sector of the last scan, m
+        self.range_front = float("inf")   # TFmini Plus, metres
+        self.last_scan = None             # most recent LaserScan, for clearance in any direction
+        self.guard_dir = None             # unit vector to escape along while the guard holds
+        self.last_cmd_v = (0.0, 0.0, 0.0)  # what we last ASKED for, to compare with what we got (self.vel)
         # A starved scan matcher is what breaks SLAM (whole-cell slips), and it looks like nothing in the logs.
         # Count /scan ourselves and say so: the LiDAR is 10 Hz in SIM time, so anything well under that means
         # scans are being dropped (GPU/CPU overload) and nothing downstream can be trusted.
@@ -182,9 +212,7 @@ class Explorer(CopterNode):
         self.vel = (0.0, 0.0)
         self.create_subscription(TwistStamped, "/mavros/local_position/velocity_local", self.on_velocity,
                                  qos_profile_sensor_data)
-        for side in TOF_SIDES:
-            self.create_subscription(LaserScan, f"/airmouse/tof/{side}",
-                                     lambda msg, side=side: self.on_tof(side, msg), qos_profile_sensor_data)
+        self.create_subscription(LaserScan, "/airmouse/range_front", self.on_range_front, qos_profile_sensor_data)
 
         latched = QoSProfile(depth=1, reliability=ReliabilityPolicy.RELIABLE,
                              durability=DurabilityPolicy.TRANSIENT_LOCAL)
@@ -193,7 +221,9 @@ class Explorer(CopterNode):
 
     def on_grid(self, msg):
         try:
-            _, cells = parse_grid(json.loads(msg.data))
+            payload = json.loads(msg.data)
+            self.fit = tuple(payload.get("fit", (0.0, 0.0, 0.0)))
+            _, cells = parse_grid(payload)
         except (ValueError, KeyError) as exc:
             self.get_logger().warn(f"bad grid message ignored: {exc}")
             return
@@ -201,23 +231,36 @@ class Explorer(CopterNode):
         self.grid_stamp = time.monotonic()
         self.grid_seq += 1
 
-    def on_tof(self, side, msg):
-        """Check every ToF reading as it arrives (20 Hz) instead of waiting for the 5 Hz mission tick."""
-        ranges = [r for r in msg.ranges if msg.range_min <= r <= msg.range_max]
-        now = time.monotonic()
-        self.tof[side] = (min(ranges) if ranges else float("inf"), now)
-        if self.pose is None or self.phase != "MISSION" or self.mission_started is None:
-            return
-        heading = self.yaw + TOF_SIDES[side]
+    def sector_min(self, msg, bearing, half=SECTOR):
+        """Nearest valid return within `half` of `bearing` (radians from the nose) in one LaserScan."""
+        best = float("inf")
+        for i, r in enumerate(msg.ranges):
+            if not (msg.range_min <= r <= msg.range_max):
+                continue
+            ang = msg.angle_min + i * msg.angle_increment
+            if abs((ang - bearing + math.pi) % (2 * math.pi) - math.pi) <= half:
+                best = min(best, r)
+        return best
+
+    def guard_check(self, side, rng, now):
+        """Is the drone about to hit the wall `rng` metres away on `side`? If so, hold a point clear of it.
+
+        The trigger is tof_stop PLUS the distance needed to brake from the speed we are carrying TOWARDS that wall
+        (v^2 / 2a + v * latency): at 1 m/s a bare 10 cm trigger is ~35 cm too late. Returns True if it fired.
+        """
+        heading = self.yaw + GUARD_SIDES[side]
         towards = max(0.0, self.vel[0] * math.cos(heading) + self.vel[1] * math.sin(heading))
         trigger = self.tof_stop + towards ** 2 / (2 * self.brake_acc) + towards * self.tof_latency
-        rng = self.tof[side][0]
         if rng >= trigger:
-            return
-        # retreat to tof_safe of clearance, or far enough to stop, whichever is more
+            return False
         back = min(0.5, max(self.tof_safe - rng, trigger - rng + 0.05))
         self.guard_target = (self.pose.x - back * math.cos(heading), self.pose.y - back * math.sin(heading))
-        self.go_to(*self.guard_target, yaw=self.heading)       # at once, not on the next tick
+        self.guard_dir = (-math.cos(heading), -math.sin(heading))
+        if self.control == "velocity":      # push straight away from the wall, at once, not on the next tick
+            self.go_velocity(self.guard_dir[0] * self.escape_speed, self.guard_dir[1] * self.escape_speed,
+                             self.z_gain * (self.altitude - self.pose.z), self.yaw_correction())
+        else:
+            self.go_to(*self.guard_target, yaw=self.heading)
         if now > self.guard_until:          # a new event, not the same one still being held
             here = (self.pose.x, self.pose.y)
             moved = self.guard_last_xy is None or math.dist(here, self.guard_last_xy) > self.guard_move
@@ -227,12 +270,32 @@ class Explorer(CopterNode):
             else:
                 self.guard_repeats += 1     # same wall, same spot: not a new event, but not forever either
             self.get_logger().warn(
-                f"WALL GUARD: {side} ToF {rng:.2f} m < {trigger:.2f} m at {towards:.2f} m/s towards it - "
+                f"WALL GUARD: {side} {rng:.2f} m < {trigger:.2f} m at {towards:.2f} m/s towards it - "
                 f"backing off {back:.2f} m and re-planning ({len(self.guard_events)} in the last minute"
                 f"{f', {self.guard_repeats} at this spot' if self.guard_repeats else ''})")
         self.guard_until = now + self.guard_hold
+        return True
+
+    def on_range_front(self, msg):
+        """TFmini Plus: 3.6 deg beam dead ahead, 100 Hz in sim (up to 1000 Hz on the real sensor over UART)."""
+        valid = [r for r in msg.ranges if msg.range_min <= r <= msg.range_max]
+        self.range_front = min(valid) if valid else float("inf")
+        if self.flying():
+            self.guard_check("front", self.range_front, time.monotonic())
+
+    def flying(self):
+        return self.pose is not None and self.phase == "MISSION" and self.mission_started is not None
 
     def on_scan(self, msg):
+        self.last_scan = msg
+        for side, bearing in GUARD_SIDES.items():
+            self.tof[side] = self.sector_min(msg, bearing)
+        if self.flying():
+            wall = time.monotonic()
+            # dead ahead is the rangefinder's job (faster and narrower); the scan covers the other three
+            for side in ("left", "right", "back"):
+                if self.guard_check(side, self.tof[side], wall):
+                    break
         now = self.get_clock().now()
         if self.scan_window_start is None:
             self.scan_window_start = now
@@ -252,9 +315,13 @@ class Explorer(CopterNode):
     def tick_guard(self):
         """While the wall guard holds, fly nothing else; afterwards re-plan from the cell we are really in."""
         if time.monotonic() < self.guard_until:
-            self.go_to(*self.guard_target, yaw=self.heading)
+            if self.control == "velocity" and self.guard_dir is not None:
+                self.go_velocity(self.guard_dir[0] * self.escape_speed, self.guard_dir[1] * self.escape_speed,
+                                 self.z_gain * (self.altitude - self.pose.z), self.yaw_correction())
+            else:
+                self.go_to(*self.guard_target, yaw=self.heading)
             return True
-        self.guard_target = None
+        self.guard_target = self.guard_dir = None
         if self.guard_repeats >= self.guard_stuck:
             self.abort(f"wall guard fired {self.guard_repeats} times without the drone clearing the wall - "
                        "it cannot back away from it")
@@ -276,14 +343,84 @@ class Explorer(CopterNode):
             self.leg_started = time.monotonic()
         return True
 
+    def clearance(self, bearing_map, half=SECTOR):
+        """How far the LiDAR can see in a MAP-frame direction, from the last scan (inf if we have none yet)."""
+        if self.last_scan is None:
+            return float("inf")
+        return self.sector_min(self.last_scan, bearing_map - self.yaw, half)
+
+    def fly_towards(self, x, y, stopping=True):
+        """Fly to (x, y) as a velocity command, kept off the walls by the raw LiDAR.
+
+        Three parts, and only the first uses the (drifting) position estimate:
+          along  - head for the target, braking to arrive if `stopping`, otherwise carry the speed through
+          across - if there are walls close on both sides, steer for the middle of the gap. This is what stops a
+                   SLAM offset flying us into a wall: the correction is measured, not estimated
+          limit  - never go faster than we could brake within what we can actually SEE ahead (the narrow TFmini
+                   dead ahead, or the scan sector in whatever direction we are travelling)
+        """
+        dx, dy = x - self.pose.x, y - self.pose.y
+        dist = math.hypot(dx, dy)
+        if dist < 1e-3:
+            self.go_velocity(0.0, 0.0, self.z_gain * (self.altitude - self.pose.z), self.yaw_correction())
+            return
+        bearing = math.atan2(dy, dx)
+        ux, uy = dx / dist, dy / dist
+        speed = self.wp_speed
+        if stopping:        # brake so we arrive at rest: v = sqrt(2 a s)
+            speed = min(speed, math.sqrt(max(0.0, 2 * self.brake_acc * max(0.0, dist - self.reached_tol * 0.5))))
+        # what can we see in the direction we are going? the TFmini only looks along the nose
+        ahead = self.clearance(bearing, math.radians(12))
+        if abs((bearing - self.yaw + math.pi) % (2 * math.pi) - math.pi) < math.radians(15):
+            ahead = min(ahead, self.range_front)
+        room = max(0.0, ahead - self.tof_safe)
+        speed = min(speed, math.sqrt(2 * self.brake_acc * room)) if room < 4.0 else speed
+        vx, vy = ux * speed, uy * speed
+        # centre in the gap: compare what we can see left and right of the way we are going
+        left = self.clearance(bearing + math.pi / 2)
+        right = self.clearance(bearing - math.pi / 2)
+        if left < self.corridor_wide and right < self.corridor_wide:
+            offset = (left - right) / 2.0          # >0 = more room on the left = we are right of centre
+            lat = max(-self.lat_max, min(self.lat_max, self.lat_gain * offset))
+            vx += -math.sin(bearing) * lat
+            vy += math.cos(bearing) * lat
+        self.last_cmd_v = (vx, vy, self.z_gain * (self.altitude - self.pose.z))
+        self.go_velocity(vx, vy, self.last_cmd_v[2], self.yaw_correction())
+
+    def yaw_correction(self):
+        """Hold the commanded heading (yaw is fixed at 0 with the 200 deg side cameras)."""
+        err = (self.heading - self.yaw + math.pi) % (2 * math.pi) - math.pi
+        return max(-1.0, min(1.0, self.yaw_gain * err))
+
+    def hold(self, x, y):
+        """Stay put at (x, y) - a velocity command that brakes into it, or a position target in position mode."""
+        if self.control == "velocity" and self.pose is not None:
+            self.fly_towards(x, y, stopping=True)
+        else:
+            self.go_to(x, y, yaw=self.heading)
+
+    def to_grid(self, x, y):
+        """SLAM map point -> the corrected frame grid_mapper classified the cells in."""
+        th, dx, dy = self.fit
+        c, s = math.cos(-th), math.sin(-th)
+        return c * x - s * y - dx, s * x + c * y - dy
+
+    def to_slam(self, x, y):
+        """Corrected-frame point -> the SLAM frame we actually fly in."""
+        th, dx, dy = self.fit
+        c, s = math.cos(th), math.sin(th)
+        px, py = x + dx, y + dy
+        return c * px - s * py, s * px + c * py
+
     def nearest_cell(self):
         """The mapped cell the drone is over right now (falls back to the last cell we passed)."""
-        p = self.pose
-        cell = (round(p.x / self.cell_size), round(p.y / self.cell_size))
+        gx, gy = self.to_grid(self.pose.x, self.pose.y)
+        cell = (round(gx / self.cell_size), round(gy / self.cell_size))
         return cell if cell in self.cells else self.current
 
     def centre_of(self, cell):
-        return cell[0] * self.cell_size, cell[1] * self.cell_size
+        """Where to FLY for a cell: its centre in the corrected grid, expressed in the SLAM frame."""
+        return self.to_slam(cell[0] * self.cell_size, cell[1] * self.cell_size)
 
     def publish_state(self):
         elapsed = max(0.0, (self.get_clock().now() - self.mission_started).nanoseconds / 1e9) if self.mission_started is not None else 0.0
@@ -292,7 +429,9 @@ class Explorer(CopterNode):
             "mapped": len(self.cells), "going_home": self.going_home,
             "queue": [list(c) for c in self.queue], "camera_seen": len(self.cam_seen),
             "guard_events": len(self.guard_events), "scan_hz": round(self.scan_hz, 1),
-            "tof": {k: round(v[0], 2) for k, v in self.tof.items()},
+            "clearance": {k: round(v, 2) for k, v in self.tof.items() if v != float("inf")},
+            "cmd_v": [round(v, 2) for v in self.last_cmd_v], "vel": [round(v, 2) for v in self.vel],
+            "range_front": round(self.range_front, 2) if self.range_front != float("inf") else None,
             "elapsed": round(elapsed, 1),
         })))
 
@@ -353,7 +492,7 @@ class Explorer(CopterNode):
 
     def tick_settle(self):
         """Hover in the middle of this cell until the map of it settles, then choose the next cell."""
-        self.go_to(*self.centre_of(self.current), yaw=self.heading)
+        self.hold(*self.centre_of(self.current))
         if time.monotonic() < self.settle_until:
             return
         # decide on a map built since we arrived, not on the one we flew in with
@@ -392,7 +531,11 @@ class Explorer(CopterNode):
 
     def tick_spin(self):
         """Yaw through four 90 deg headings in place so the camera looks all round, then decide."""
-        self.go_to(*self.centre_of(self.current), yaw=self.spin[0])
+        if self.control == "velocity":
+            self.heading = self.spin[0]
+            self.hold(*self.centre_of(self.current))
+        else:
+            self.go_to(*self.centre_of(self.current), yaw=self.spin[0])
         if time.monotonic() < self.spin_until:
             return
         self.camera_view(self.current, self.spin[0])
@@ -469,7 +612,11 @@ class Explorer(CopterNode):
         x, y = self.centre_of(target)
         if self.camera == "utility" and not self.omni:      # nose (and camera) along the leg
             self.heading = math.atan2(target[1] - self.current[1], target[0] - self.current[0])
-        self.go_to(x, y, yaw=self.heading)
+        if self.control == "velocity":
+            # only brake for the LAST cell of the whole route; mid-route corners are flown through
+            self.fly_towards(x, y, stopping=(run == len(self.queue)))
+        else:
+            self.go_to(x, y, yaw=self.heading)
         if time.monotonic() - self.leg_started > self.stuck_timeout + 10.0 * (run - 1):
             p = self.pose
             self.abort(f"stuck: cell {target} at ({x:.1f}, {y:.1f}) not reached in "
@@ -525,9 +672,10 @@ class Explorer(CopterNode):
             f"at yaw {math.degrees(self.exit_heading):.0f} deg")
 
     def tick_exit(self):
-        """Command position setpoint outside the arena until reached, then land."""
+        """Fly out through the entrance until clear of the arena, then land."""
         tx, ty = self.exit_target
-        self.go_to(tx, ty, yaw=self.exit_heading)
+        self.heading = self.exit_heading
+        self.hold(tx, ty) if self.control == "velocity" else self.go_to(tx, ty, yaw=self.exit_heading)
         if self.distance_to(tx, ty) < self.reached_tol:
             self.finish(f"autonomous exit complete via {self.entrance_side} ({self.exit_distance:.1f} m outside) - landing")
             return

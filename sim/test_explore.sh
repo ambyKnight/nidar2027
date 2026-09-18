@@ -29,7 +29,7 @@ rm -rf "$OUT"; mkdir -p "$OUT"            # stale logs from a failed run are wor
 RUNDIR=$HOME/airmouse_ws/sim/runs/$(date +%m%d_%H%M%S)
 mkdir -p "$RUNDIR"
 
-BAG_PID=""; CPU_PID=""; RVIZ_PID=""""
+BAG_PID=""; CPU_PID=""; RVIZ_PID=""
 cleanup() {
   # stop the recorder / CPU sampler too if the run is cut short, or they outlive it
   [ -n "$BAG_PID" ] && kill -INT "$BAG_PID" 2>/dev/null     # the recorder was started with SIGINT restored
@@ -37,7 +37,9 @@ cleanup() {
   [ -n "$RVIZ_PID" ] && kill "$RVIZ_PID" 2>/dev/null
   "$HERE/../scripts/sim_down.sh" > /dev/null 2>&1
 }
-trap cleanup EXIT
+# EXIT alone does not fire when the run is killed from outside (a harness timeout, Ctrl-C, a stopped
+# background job). That is how eight survivor_tagger processes leaked on 2026-09-18 and starved the next runs.
+trap cleanup EXIT INT TERM HUP
 
 die() { echo; echo "FAILED: $*"; exit 1; }
 
@@ -68,6 +70,13 @@ ros2 launch airmouse slam.launch.py > "$OUT/slam.log" 2>&1 &
 echo "=== [4/6] health check (waits for every link) $(date +%H:%M:%S)"
 timeout -k 5 150 python3 "$HERE/health_check.py" --wait 120 --seconds 5 2>&1 | tee "$OUT/health.txt"
 grep -q "DEAD" "$OUT/health.txt" && echo "WARNING: something is DEAD above - flying anyway, watch it"
+# Dropped scans are NOT something to fly through: a starved Cartographer slips whole cells and flies the drone
+# into walls (2026-09-18). Refuse the flight instead of producing another unusable run.
+if grep -q "DROPPED" "$OUT/health.txt"; then
+  echo; echo "Load check: something else on this machine is stealing the CPU/GPU this run needs."
+  ps -eo pcpu,etime,comm --sort=-pcpu | head -8
+  die "LiDAR scans are being dropped before takeoff - fix the load first (scripts/sim_down.sh, close other work)"
+fi
 
 # Is Cartographer actually USING the IMU? use_imu_data can be true while the topic is unmapped or
 # too slow, and SLAM then runs exactly as before with no error to say so. Measure it once, here,
@@ -85,9 +94,8 @@ grep -icE "imu.*(missing|dropp|older|unable)" "$OUT/slam.log" 2>/dev/null \
 # (sim/replay_slam.sh). A background job in a non-interactive script starts with SIGINT IGNORED, so
 # `kill -INT` would do nothing and the bag would never be finalised: restore the default first.
 python3 -c 'import signal,os,sys; signal.signal(signal.SIGINT, signal.SIG_DFL); os.execvp(sys.argv[1], sys.argv[1:])' \
-    ros2 bag record -o "$RUNDIR/bag" /scan /clock /tf /tf_static /airmouse/imu \
-    /model/iris_lidar/pose /mavros/local_position/pose /mavros/vision_pose/pose /airmouse/tof/front \
-    /airmouse/tof/back /airmouse/tof/left /airmouse/tof/right \
+    ros2 bag record -o "$RUNDIR/bag" /scan /clock /tf /tf_static /airmouse/imu /map /airmouse/grid \
+    /model/iris_lidar/pose /mavros/local_position/pose /mavros/vision_pose/pose /airmouse/range_front \
     > "$OUT/bag.log" 2>&1 &
 BAG_PID=$!
 
@@ -140,6 +148,10 @@ timeout -k 3 60 python3 "$HERE/plot_run.py" "$OUT/slam_eval.csv" "$OUT/path.png"
 cp "$OUT"/*.log "$OUT"/*.txt "$OUT"/*.csv "$OUT"/*.png "$RUNDIR"/ 2>/dev/null
 
 echo
+# Nothing of ours may outlive the run: a leaked node steals CPU from every flight that follows.
+left=$(pgrep -f "[a]irmouse/lib/airmouse" | wc -l)
+[ "$left" -gt 0 ] && echo "WARNING: $left airmouse node(s) still running after the run - scripts/sim_down.sh"
+
 echo "=== summary ==="
 grep -E "(step|backtrack|exploration|home again|out of time|ABORT)" "$OUT/explorer.log" | tail -10
 grep -m1 "visited .* cells:" "$OUT/explorer.log"

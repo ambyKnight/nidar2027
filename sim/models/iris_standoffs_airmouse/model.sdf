@@ -9,14 +9,14 @@
       </velocity_decay>
       <inertial>
         <pose>0 0 0 0 0 0</pose>
-        <mass>0.9850</mass>
+        <mass>1.0000</mass>
         <inertia>
-          <ixx>0.00525333</ixx>
+          <ixx>0.00533333</ixx>
           <ixy>0</ixy>
           <ixz>0</ixz>
-          <iyy>0.00985</iyy>
+          <iyy>0.01</iyy>
           <iyz>0</iyz>
-          <izz>0.0111633</izz>
+          <izz>0.0113333</izz>
         </inertia>
       </inertial>
       <collision name='base_collision'>
