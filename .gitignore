@@ -27,3 +27,6 @@ __pycache__/
 *.swp
 *~
 .DS_Store
+
+# Competition documents (NIDAR rulebook / mission brief) - kept locally, not redistributed
+docs/*.pdf
