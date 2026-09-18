@@ -51,6 +51,8 @@ Runs 1-6 used `plan_tour.py` (route from the true maze). Runs 7+ are autonomous.
 | 17 | camera-aware utility exploration, 330 mm/1.3 kg drone, 4 edge ToF + wall guard, optical flow | **clean, ~3 min: 120/120 mapped, 111/120 cells (92%), 471/480 sides (98%), SLAM mean 0.05 m max 0.13 m, exit 0.** Guard fired 4x on a bad speed estimate (pose differencing read 1.4-1.9 m/s against a true 1.11 m/s) - now uses EKF velocity (`/mavros/local_position/velocity_local`) |
 | 18 | same, on `rooms_small_4` after the other agent's exit/survivor work | **ABORTED at 5 wall-guard firings.** SLAM error mean 0.227 m, **max 3.63 m**: whole-cell slips. Root cause NOT the algorithm - only ~60% of `/scan` reached Cartographer (4.4 Hz vs 7.3 expected at 73% real time). The four ToF gpu_lidars at 20 Hz were asking for 80 GPU renders/s. The guard did its job: it landed safely instead of crashing |
 | 19 | **ToF sensors 10 Hz + explorer logs the LiDAR rate** | **best run so far: 116.2 s, map 116/120 cells (97%), 476/480 sides (99%), SLAM mean 0.058 m max 0.180 m, 1 guard firing, autonomous exit flown, exit 0.** LiDAR steady at 10.0 Hz |
+| 20 | LiDAR cut 450 -> 230 points (to save GPU), RViz2 on | **FAILED: SLAM came apart - yaw p95 68 deg, position max 18 m, map 46/120 (38%)**, while the LiDAR delivered a perfect 10 Hz. **Reverted.** The scan matcher needs point DENSITY to fix rotation; judging density by ray spacing at a range was wrong |
+| 21 | 450 points restored, RViz2 on | **CRASHED into a wall in the far room and aborted.** Truth: on the floor (z=0.12) at world (4.98, 9.32) from sim t=108 s to the end. Drift started ~25 s BEFORE impact (0.6 -> 5 m), so it flew into the wall believing it was elsewhere; SLAM then ran to 37 m while the drone lay still. Map 29/120 (24%), 6 guard firings. LiDAR 10.0-10.2 Hz throughout - NOT starvation this time |
 | 16 | **NEW `frontier` explorer on the generated building `rooms_small_4`** (3 rooms wide, 12x10 m, 120 cells) | **Clean autonomous mission in ~2.5 min: 24 cells flown, all 120 mapped. Map 111/120 cells (92%), 462/480 sides (96%). SLAM error mean 0.028 m, max 0.063 m.** Landed, exit 0. First time the whole chain works. (Runs 14/15 never flew: 14 was the wrong world; 15 lost Gazebo at startup to the WSL GPU glitch - `sim_up.sh` now retries)
 | 17 | `rooms_small_4`, first flight with the 330 mm / 1.3 kg drone, 360° cameras, ToF guard and optical flow | **Clean mission, about 3 min: 120/120 cells mapped; 111/120 cells (92%) and 471/480 sides (98%) correct. SLAM error mean 0.05 m, max 0.13 m.** Guard fired 4 times falsely: the pose-difference speed read 1.4–1.9 m/s against a true 1.11 m/s. It now uses EKF velocity. Run folder: `sim/runs/0918_192850` |
 
@@ -75,6 +77,22 @@ penalty, so long straights beat staircases) and are flown in straight legs; a pa
 closes the next hop. `strategy:=dfs` restores the old tour of every cell. Offline (idealised line-of-sight model, WP_SPD 0.5 m/s):
 maze ~5.5 -> 2.5 min, rooms_small_4 17 -> 2.1 min, rooms_1 (544 cells) 79 -> 7.9 min. SLAM was FAR better in open rooms than in the
 narrow maze (0.03 m vs 1+ m), which fits the failure being specific to those corridors.
+
+**Two open problems after runs 20/21 (2026-09-18), both seen by the user in RViz:**
+1. **SLAM still drifts in the far room** of rooms_small_4 and the drone crashes into a wall there. Runs 19 (clean,
+   max 0.18 m) and 21 (crash) differ only in RViz being open - unproven either way, so the next step is one run with
+   RViz off and one with it on, nothing else changed. What IS established: the drift precedes the collision, the
+   LiDAR rate was fine, and the huge post-crash numbers are the estimate running away while the drone lies still.
+2. **The route zig-zags across the building.** Real decision sequence from run 21: (1,3) -> 7 cells back to (1,-4),
+   (4,-5) -> 10 cells up to (6,3), (8,-5) -> 14 cells back across to (1,-4). `utility_step` divides gain by cost, so
+   a big distant room beats finishing the room we are standing in, and `frontier_step` checks room centres first
+   (centre_reach 6). Needs a locality bias (e.g. score x exp(-cost/D)) so far targets only win when nothing near is
+   left - and the room-centre step probably should go, since the camera gain already rewards standing in a centre.
+
+**The wall guard needs two fixes (runs 20/21).** When the drone is stopped and too close, it backs off only
+(trigger - range + 0.05) = 5-6 cm, drifts straight back, and fires again: three firings at the same spot ended run
+21. It should retreat to a real clearance (~0.30 m), and repeated firings without the drone moving should count as
+ONE event, not N towards the abort limit.
 
 **Sim sensor load is a SLAM failure mode (2026-09-18, runs 18/19).** Every `gpu_lidar` costs a GPU render, and when
 the simulator cannot keep up it DROPS scans silently - no warning anywhere. Starved of scans the Cartographer scan

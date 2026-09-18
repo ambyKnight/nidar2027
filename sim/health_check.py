@@ -7,12 +7,17 @@
 the fixed sleeps test_explore.sh used to guess with: it returns as soon as the chain is up, and a link that never
 comes up is reported DEAD after N s instead of after a sleep that was too short.
 
+It also measures the simulator's real-time factor from /clock and converts the sensor rates into SIM time. That
+is the number that matters: the LiDAR is 10 Hz in sim time, so anything much under 10 means Gazebo is DROPPING
+scans under load - and a starved Cartographer slips whole cells and wrecks the flight (NOTES "Sim sensor load").
+
 Listens for a few seconds (never hangs) and reports message rates for:
   /clock (Gazebo sim time) -> /scan (LiDAR) -> /map (SLAM) -> TF map->base_link (SLAM pose)
   -> /mavros/vision_pose/pose (pose sent to ArduPilot) -> /mavros/state (ArduPilot link)
 Exit code 1 if any link is dead.
 """
 import argparse
+import os
 import sys
 import time
 
@@ -44,11 +49,16 @@ def main():
     node = Node("health_check")
     counts = {name: 0 for name, _ in CHECKS}
     last_state = {}
+    sim_span = {}
     for name, kind in CHECKS:
         def cb(msg, name=name):
             counts[name] += 1
             if name == "/mavros/state":
                 last_state["s"] = msg
+            elif name == "/clock":
+                t = msg.clock.sec + msg.clock.nanosec * 1e-9
+                sim_span.setdefault("first", t)
+                sim_span["last"] = t
         qos = qos_profile_sensor_data if name in ("/scan", "/clock", "/model/iris_lidar/pose") \
             or name.startswith("/airmouse/tof/") else 10
         node.create_subscription(kind, name, cb, qos)
@@ -76,8 +86,10 @@ def main():
         for name in counts:          # measure rates from here on, not from the wait
             counts[name] = 0
 
+    sim_span.clear()
     tf_ok = 0
-    end = time.time() + args.seconds
+    wall_start = time.time()
+    end = wall_start + args.seconds
     while time.time() < end:
         rclpy.spin_once(node, timeout_sec=0.1)
         try:
@@ -87,13 +99,32 @@ def main():
             pass
 
     healthy = True
+    wall = max(1e-3, time.time() - wall_start)
+    sim = sim_span.get("last", 0.0) - sim_span.get("first", 0.0)
+    rtf = sim / wall if sim > 0 else 0.0
     for name, _ in CHECKS:
-        rate = counts[name] / args.seconds
+        rate = counts[name] / wall
         ok = counts[name] > 0
         healthy &= ok
-        print(f"  {'OK  ' if ok else 'DEAD'} {name:<28} {rate:6.1f} msg/s")
+        # sensors are configured in SIM time; dividing by the real-time factor un-does the slow-motion so the
+        # number can be compared with the 10 Hz the sensor is supposed to produce
+        per_sim = f"  = {rate / rtf:5.1f} /sim-s" if rtf > 0 and name.startswith(("/scan", "/airmouse/tof")) else ""
+        print(f"  {'OK  ' if ok else 'DEAD'} {name:<28} {rate:6.1f} msg/s{per_sim}")
     print(f"  {'OK  ' if tf_ok else 'DEAD'} {'TF map -> base_link':<28} {'found' if tf_ok else 'never found'}")
     healthy &= tf_ok > 0
+    if rtf > 0:
+        scan_sim = counts["/scan"] / wall / rtf
+        print(f"  simulator running at {rtf * 100:.0f}% of real time; LiDAR delivering {scan_sim:.1f} of 10 Hz (sim)")
+        if scan_sim < 8.0:
+            print(f"  WARNING: {(1 - scan_sim / 10) * 100:.0f}% of LiDAR scans are being DROPPED - SLAM will drift "
+                  f"and this flight's map cannot be trusted. Close other GPU/CPU load, or run with HEADLESS=1.")
+            healthy = False
+    try:
+        cores = os.cpu_count() or 1
+        load = os.getloadavg()[0]
+        print(f"  CPU load {load:.1f} over {cores} cores{'  - HEAVILY LOADED' if load > cores * 0.8 else ''}")
+    except OSError:
+        pass
     if "s" in last_state:
         s = last_state["s"]
         print(f"  ArduPilot: connected={s.connected} armed={s.armed} mode={s.mode}")

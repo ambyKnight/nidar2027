@@ -3,6 +3,7 @@
 #
 #   sim/test_explore.sh [world.sdf] [mission_timeout_s]     (Gazebo window on; HEADLESS=1 to hide it)
 #   EXPLORER_ARGS="-p settle_time:=1.0 -p drift_penalty:=1.0" sim/test_explore.sh    (extra explorer parameters)
+#   RVIZ=1 sim/test_explore.sh          (watch the SLAM map, scan, drone pose and survivor markers live)
 #
 # Default world: rooms_small_4 (12 x 10 m, big rooms and 1 m walls - the NIDAR arena style, within its 15 x 15 m).
 #
@@ -28,11 +29,12 @@ rm -rf "$OUT"; mkdir -p "$OUT"            # stale logs from a failed run are wor
 RUNDIR=$HOME/airmouse_ws/sim/runs/$(date +%m%d_%H%M%S)
 mkdir -p "$RUNDIR"
 
-BAG_PID=""; CPU_PID=""
+BAG_PID=""; CPU_PID=""; RVIZ_PID=""""
 cleanup() {
   # stop the recorder / CPU sampler too if the run is cut short, or they outlive it
   [ -n "$BAG_PID" ] && kill -INT "$BAG_PID" 2>/dev/null     # the recorder was started with SIGINT restored
   [ -n "$CPU_PID" ] && kill "$CPU_PID" 2>/dev/null           # a background shell loop ignores SIGINT
+  [ -n "$RVIZ_PID" ] && kill "$RVIZ_PID" 2>/dev/null
   "$HERE/../scripts/sim_down.sh" > /dev/null 2>&1
 }
 trap cleanup EXIT
@@ -102,6 +104,19 @@ CPU_PID=$!
 python3 -u "$HERE/slam_eval.py" --idle 100000 --csv "$OUT/slam_eval.csv" > "$OUT/slam_eval.txt" 2>&1 &
 EVAL_PID=$!
 
+# Watching costs CPU/GPU, and a starved Cartographer is what wrecks a flight (NOTES "Sim sensor load"). So start
+# RViz BEFORE the flight (never attach to a live one - that froze run 9), and push every viewer to the back of the
+# CPU queue: the Gazebo window and RViz are nice +10, SLAM/MAVROS/Gazebo-server keep the CPU they need.
+if [ -n "${RVIZ:-}" ]; then
+  echo "=== RViz2 (mission view: map, scan, drone pose, survivors) $(date +%H:%M:%S)"
+  rviz2 -d "$HERE/rviz/mission.rviz" --ros-args -p use_sim_time:=true > "$OUT/rviz.log" 2>&1 &
+  RVIZ_PID=$!
+  sleep 5
+fi
+for pat in "gz sim gui" "rviz2"; do
+  for pid in $(pgrep -f "$pat" 2>/dev/null); do renice -n 10 -p "$pid" > /dev/null 2>&1; done
+done
+
 echo "=== [5/6] EXPLORING (no prior knowledge) $(date +%H:%M:%S)${EXPLORER_ARGS:+  args: $EXPLORER_ARGS}"
 timeout -k 15 "$((MISSION_TIMEOUT + 180))" "$BIN/explorer" --ros-args \
     -p use_sim_time:=true -p altitude:=1.2 -p mission_timeout:="$MISSION_TIMEOUT.0" $EXPLORER_ARGS \
@@ -131,6 +146,9 @@ grep -m1 "visited .* cells:" "$OUT/explorer.log"
 grep -m1 -o "mission time: .*" "$OUT/explorer.log" || echo "mission time: none (never landed normally)"
 [ -n "$EXPLORER_ARGS" ] && echo "explorer args: $EXPLORER_ARGS"
 echo "WALL GUARD fired: $(grep -c "WALL GUARD:" "$OUT/explorer.log" 2>/dev/null || echo 0) times"
+# The LiDAR rate decides whether anything else in this run means anything: 10 Hz (sim) = no dropped scans.
+echo "LiDAR rate (sim): $(grep -oE "LiDAR [0-9.]+ Hz" "$OUT/explorer.log" | awk '{print $2}' | sort -n | sed -n '1p;$p' | paste -sd'-' )  Hz (min-max, want ~10)"
+grep -c "scans are being dropped" "$OUT/explorer.log" 2>/dev/null | sed "s/^/LiDAR starvation warnings: /"
 echo "camera decisions: $(grep -c "camera:" "$OUT/explorer.log" 2>/dev/null || echo 0)"
 echo "picture: $OUT/path.png"
 echo "kept: $RUNDIR/  (bag, logs, picture)"

@@ -640,6 +640,10 @@
         <lidar>
           <scan>
             <horizontal>
+              <!-- 450, the real LD19's count. DO NOT reduce: at 230 points SLAM came apart - yaw error p95 68 deg,
+                   position error up to 18 m, map 46/120 cells (2026-09-18, run 20), with the LiDAR delivering a
+                   perfect 10 Hz. The scan matcher needs the point density to pin down ROTATION; the gap between
+                   rays at a given range is the wrong way to judge it. -->
               <samples>450</samples>
               <resolution>1</resolution>
               <min_angle>-3.14159</min_angle>
