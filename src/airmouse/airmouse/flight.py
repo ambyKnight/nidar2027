@@ -29,6 +29,7 @@ class CopterNode(Node):
         self.altitude = altitude
         self.fcu_state = State()
         self.pose = None
+        self.yaw = 0.0
         self.phase = "WAIT_FOR_FCU"
         self.aborted = False
         self.landing_started = None
@@ -97,6 +98,8 @@ class CopterNode(Node):
 
     def on_pose(self, msg):
         self.pose = msg.pose.position
+        q = msg.pose.orientation
+        self.yaw = math.atan2(2 * (q.w * q.z + q.x * q.y), 1 - 2 * (q.y * q.y + q.z * q.z))
 
     def switch(self, phase):
         self.get_logger().info(f"--> {phase}")

@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
 """Quick health check of the running simulation: is data flowing through every link of the chain?
 
-    python3 health_check.py [--seconds 10]
+    python3 health_check.py [--seconds 10] [--wait 120]
+
+--wait N: first wait (up to N s) until EVERY link has delivered at least one message, then measure. This replaces
+the fixed sleeps test_explore.sh used to guess with: it returns as soon as the chain is up, and a link that never
+comes up is reported DEAD after N s instead of after a sleep that was too short.
 
 Listens for a few seconds (never hangs) and reports message rates for:
   /clock (Gazebo sim time) -> /scan (LiDAR) -> /map (SLAM) -> TF map->base_link (SLAM pose)
@@ -25,12 +29,15 @@ from tf2_ros import Buffer, TransformException, TransformListener
 
 CHECKS = [("/clock", Clock), ("/scan", LaserScan), ("/map", OccupancyGrid),
           ("/mavros/vision_pose/pose", PoseStamped), ("/mavros/state", State),
-          ("/model/iris_lidar/pose", PoseStamped)]  # sim ground truth
+          ("/model/iris_lidar/pose", PoseStamped),  # sim ground truth
+          ("/airmouse/tof/front", LaserScan), ("/airmouse/tof/back", LaserScan),   # edge ToF (wall guard)
+          ("/airmouse/tof/left", LaserScan), ("/airmouse/tof/right", LaserScan)]
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--seconds", type=float, default=10.0)
+    ap.add_argument("--wait", type=float, default=0.0, help="wait up to this long for every link first")
     args = ap.parse_args()
 
     rclpy.init()
@@ -42,10 +49,32 @@ def main():
             counts[name] += 1
             if name == "/mavros/state":
                 last_state["s"] = msg
-        qos = qos_profile_sensor_data if name in ("/scan", "/clock", "/model/iris_lidar/pose") else 10
+        qos = qos_profile_sensor_data if name in ("/scan", "/clock", "/model/iris_lidar/pose") \
+            or name.startswith("/airmouse/tof/") else 10
         node.create_subscription(kind, name, cb, qos)
     buf = Buffer()
     TransformListener(buf, node)
+
+    def tf_found():
+        try:
+            buf.lookup_transform("map", "base_link", Time())
+            return True
+        except TransformException:
+            return False
+
+    if args.wait > 0:
+        start, deadline, last_print = time.time(), time.time() + args.wait, 0.0
+        while time.time() < deadline:
+            rclpy.spin_once(node, timeout_sec=0.1)
+            missing = [n for n, c in counts.items() if c == 0] + ([] if tf_found() else ["TF map->base_link"])
+            if not missing:
+                print(f"  all links up after {time.time() - start:.0f} s")
+                break
+            if time.time() - last_print > 10:
+                last_print = time.time()
+                print(f"  waiting ({time.time() - start:.0f} s) for: {', '.join(missing)}", flush=True)
+        for name in counts:          # measure rates from here on, not from the wait
+            counts[name] = 0
 
     tf_ok = 0
     end = time.time() + args.seconds

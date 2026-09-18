@@ -1,0 +1,20 @@
+# AirMouse: downward optical flow + downward rangefinder, fused by EKF3 as horizontal VELOCITY.
+# SLAM (ExtNav) still gives position and yaw; flow gives a second, independent velocity measurement, so the
+# EKF does not integrate accelerometer error when SLAM updates are late or jump (IMU drift between fixes).
+# Flow alone does NOT fix a SLAM map that has slipped a cell - the EKF follows SLAM's position.
+#
+# Sim: ArduPilot SITL simulates both sensors from its own physics state (flat floor), no Gazebo sensor needed.
+# Real drone: set FLOW_TYPE to the real sensor (e.g. 6 = MSP/MTF-01, 5 = MAVLink, 1 = PX4Flow/PMW3901 via I2C
+# depends on the board) and RNGFND1_TYPE to its range sensor, then calibrate FLOW_FXSCALER/FYSCALER.
+
+# optical flow: 10 = SITL
+FLOW_TYPE 10
+SIM_FLOW_ENABLE 1
+# flow needs height above the floor: downward rangefinder (gazebo-iris.parm already sets RNGFND1_TYPE 1,
+# the SITL sonar); make sure it points down and covers indoor heights
+RNGFND1_ORIENT 25
+RNGFND1_MIN 0.05
+RNGFND1_MAX 8.00
+
+# EKF3 source set 1: position + yaw from SLAM (ExtNav, nogps_extnav.parm), horizontal velocity from flow (5)
+EK3_SRC1_VELXY 5

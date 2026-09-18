@@ -9,19 +9,19 @@
       </velocity_decay>
       <inertial>
         <pose>0 0 0 0 0 0</pose>
-        <mass>1.5</mass>
+        <mass>0.9850</mass>
         <inertia>
-          <ixx>0.008</ixx>
+          <ixx>0.00525333</ixx>
           <ixy>0</ixy>
           <ixz>0</ixz>
-          <iyy>0.015</iyy>
+          <iyy>0.00985</iyy>
           <iyz>0</iyz>
-          <izz>0.017</izz>
+          <izz>0.0111633</izz>
         </inertia>
       </inertial>
       <collision name='base_collision'>
         <pose>0 0 0 0 0 0</pose>
-        <geometry><box><size>0.35 0.35 0.08</size></box></geometry>
+        <geometry><box><size>0.2333452377915607 0.2333452377915607 0.08</size></box></geometry>
         <surface>
           <contact>
             <ode>
@@ -38,7 +38,7 @@
         </surface>
       </collision>
       <collision name='front_left_leg_collision'>
-        <pose>0.125 0.125 -0.11 0 0 0</pose>
+        <pose>0.067 0.067 -0.11 0 0 0</pose>
         <geometry>
           <cylinder>
             <radius>0.005</radius>
@@ -61,7 +61,7 @@
         </surface>
       </collision>
       <collision name='front_right_leg_collision'>
-        <pose>0.125 -0.125 -0.11 0 0 0</pose>
+        <pose>0.067 -0.067 -0.11 0 0 0</pose>
         <geometry>
           <cylinder>
             <radius>0.005</radius>
@@ -84,7 +84,7 @@
         </surface>
       </collision>
       <collision name='rear_left_leg_collision'>
-        <pose>-0.125 0.125 -0.11 0 0 0</pose>
+        <pose>-0.067 0.067 -0.11 0 0 0</pose>
         <geometry>
           <cylinder>
             <radius>0.005</radius>
@@ -107,7 +107,7 @@
         </surface>
       </collision>
       <collision name='rear_right_leg_collision'>
-        <pose>-0.125 -0.125 -0.11 0 0 0</pose>
+        <pose>-0.067 -0.067 -0.11 0 0 0</pose>
         <geometry>
           <cylinder>
             <radius>0.005</radius>
@@ -149,7 +149,7 @@
         </material>
       </visual>
       <visual name='front_left_leg_visual'>
-        <pose>0.125 0.125 -0.11 0 0 0</pose>
+        <pose>0.067 0.067 -0.11 0 0 0</pose>
         <geometry>
           <cylinder>
             <radius>0.005</radius>
@@ -169,7 +169,7 @@
         </material>
       </visual>
       <visual name='front_right_leg_visual'>
-        <pose>0.125 -0.125 -0.11 0 0 0</pose>
+        <pose>0.067 -0.067 -0.11 0 0 0</pose>
         <geometry>
           <cylinder>
             <radius>0.005</radius>
@@ -189,7 +189,7 @@
         </material>
       </visual>
       <visual name='rear_left_leg_visual'>
-        <pose>-0.125 0.125 -0.11 0 0 0</pose>
+        <pose>-0.067 0.067 -0.11 0 0 0</pose>
         <geometry>
           <cylinder>
             <radius>0.005</radius>
@@ -209,7 +209,7 @@
         </material>
       </visual>
       <visual name='rear_right_leg_visual'>
-        <pose>-0.125 -0.125 -0.11 0 0 0</pose>
+        <pose>-0.067 -0.067 -0.11 0 0 0</pose>
         <geometry>
           <cylinder>
             <radius>0.005</radius>

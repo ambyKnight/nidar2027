@@ -21,3 +21,7 @@ WP_SPD_DN 0.5
 # the last stage keeps the gentle LAND_SPD_MS default of 0.5 m/s.
 DISARM_DELAY 3
 LAND_SPD_HIGH_MS 1.0
+
+# The sim drone weighs 1.3 kg (our real drone) but keeps the Iris motors, so it hovers well below the Iris's
+# 0.39. Start near it; ArduPilot learns the real value in flight (MOT_HOVER_LEARN).
+MOT_THST_HOVER 0.28

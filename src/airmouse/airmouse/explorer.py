@@ -6,7 +6,7 @@ maze; the explorer only ever looks at /airmouse/grid, the map the drone is build
 Cell by cell: stop in the centre of each new cell, hover until the map of that cell settles, then
 pick the next cell. Depth-first while there is somewhere new to go, shortest known path back when we
 hit a dead end, and finally back to the takeoff cell to land. Deliberately unhurried - in a 1 m
-corridor with a 35 cm drone and 0.1-0.3 m SLAM error, arriving is worth more than arriving quickly.
+corridor with a 33 cm drone and 0.1-0.3 m SLAM error, arriving is worth more than arriving quickly.
 The under-15-minute bonus comes later, by flying multi-cell legs once this works end to end.
 
     ros2 run airmouse explorer
@@ -25,7 +25,9 @@ import time
 
 import rclpy
 from rclpy.executors import ExternalShutdownException
-from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
+from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy, qos_profile_sensor_data
+from geometry_msgs.msg import TwistStamped
+from sensor_msgs.msg import LaserScan
 from std_msgs.msg import String
 
 from airmouse.explore_logic import (camera_gain, corridor_penalty, frontier_step, is_frontier, line_of_sight,
@@ -33,6 +35,8 @@ from airmouse.explore_logic import (camera_gain, corridor_penalty, frontier_step
 from airmouse.flight import CopterNode
 
 HOME = (0, 0)
+# ToF range sensors on the 4 edges of the frame: name -> direction relative to the nose (rad)
+TOF_SIDES = {"front": 0.0, "left": math.pi / 2, "back": math.pi, "right": -math.pi / 2}
 
 
 class Explorer(CopterNode):
@@ -75,8 +79,8 @@ class Explorer(CopterNode):
         self.route_kind = "frontier"
         self.pass_tol = self.declare_parameter("pass_tol", 0.4).value
         # At a corner in the middle of a route, move on when this close instead of braking to a stop at
-        # reached_tol. Cuts the corner by at most this much: the drone is 35 cm wide in 1 m cells, so keep
-        # it well under 0.35. The FINAL target of a route still needs reached_tol.
+        # reached_tol. Cuts the corner by at most this much: the drone is 33 cm tip to tip (23 cm square) in 1 m
+        # cells, so keep it well under ~0.3. The FINAL target of a route still needs reached_tol.
         self.corner_tol = self.declare_parameter("corner_tol", 0.25).value
         # total flight budget, INCLUDING the flight home: we turn for home once the estimated trip back
         # (home_path cells / wp_speed + turns + home_margin) would overrun it. 840 s = 14 min, inside
@@ -84,13 +88,26 @@ class Explorer(CopterNode):
         self.mission_timeout = self.declare_parameter("mission_timeout", 840.0).value
         self.home_margin = self.declare_parameter("home_margin", 60.0).value
         self.wp_speed = self.declare_parameter("wp_speed", 0.5).value      # WP_SPD in indoor.parm
-        # Survivors (240 pts) are found by the CAMERA, which the LiDAR-driven search used to ignore: the nose
-        # stayed at yaw 0, so offline the camera saw only 49-86% of cells. "utility": face the way we fly,
-        # spin at a stop when that shows the camera cells it has not seen, and pick stops by map + camera
-        # gain per unit of flight (explore_logic.utility_step). "off" = the old behaviour.
+        # Survivors (240 pts) are found by the CAMERA. "utility": pick stops by map + camera gain per unit of
+        # flight (explore_logic.utility_step), so every cell gets looked at within cam_reach. "off" = ignore it.
+        # cam_hfov_deg is the COMBINED view: 360 for our two 200 deg side cameras - then the drone never yaws
+        # (yaw stresses the scan matcher and buys nothing) and never spins. Below 360 (a single forward camera)
+        # the nose points along each leg and the drone spins at stops that would show the camera new cells.
         self.camera = self.declare_parameter("camera", "utility").value
         self.cam_reach = self.declare_parameter("cam_reach", 3.0).value
-        self.cam_half_fov = math.radians(self.declare_parameter("cam_hfov_deg", 69.0).value / 2.0)
+        cam_hfov = self.declare_parameter("cam_hfov_deg", 360.0).value
+        self.omni = cam_hfov >= 360.0
+        self.cam_half_fov = math.radians(cam_hfov / 2.0)
+        # Wall guard on the 4 edge ToF sensors (/airmouse/tof/<side>). ArduPilot's own avoidance does NOT act
+        # on the position targets we send in GUIDED (only on velocity targets), so the guard is ours. It fires
+        # when a sensor reads less than tof_stop PLUS the distance needed to brake from the current speed
+        # towards that wall (v^2 / 2 brake_acc + v * tof_latency): at 1 m/s a 10 cm trigger alone is ~35 cm
+        # too late. On firing it holds a point backed away from the wall, then re-plans from where it is.
+        self.tof_stop = self.declare_parameter("tof_stop", 0.10).value
+        self.brake_acc = self.declare_parameter("brake_acc", 2.0).value        # WP_ACC in indoor.parm
+        self.tof_latency = self.declare_parameter("tof_latency", 0.15).value  # sensor + ROS + FC, s
+        self.guard_hold = self.declare_parameter("guard_hold", 1.5).value
+        self.guard_limit = self.declare_parameter("guard_limit", 5).value      # firings per minute -> abort
         self.spin_hold = self.declare_parameter("spin_hold", 2.0).value   # s at each 90 deg heading of a spin
         # extra route cost per hop into a cell with a wall on one side only (see corridor_penalty). 0 = off:
         # the run-13 analysis did not confirm that geometry as the cause of the SLAM breakdown.
@@ -120,6 +137,18 @@ class Explorer(CopterNode):
         self.spin = []             # headings still to hold in the current spin
         self.spin_until = 0.0
         self.spun_at = None        # one spin per stop: the map growing DURING a spin must not start another
+        self.tof = {}              # side -> (range m, monotonic time)
+        self.guard_until = 0.0     # holding a backed-off point until then
+        self.guard_target = None
+        self.guard_events = []     # monotonic times the guard fired
+        # velocity from the flight controller's EKF (map frame), NOT from differencing poses: in run 17 the pose
+        # difference read 1.4-1.9 m/s when Gazebo truth never exceeded 1.11 m/s, and fired the guard 4 times for nothing
+        self.vel = (0.0, 0.0)
+        self.create_subscription(TwistStamped, "/mavros/local_position/velocity_local", self.on_velocity,
+                                 qos_profile_sensor_data)
+        for side in TOF_SIDES:
+            self.create_subscription(LaserScan, f"/airmouse/tof/{side}",
+                                     lambda msg, side=side: self.on_tof(side, msg), qos_profile_sensor_data)
 
         latched = QoSProfile(depth=1, reliability=ReliabilityPolicy.RELIABLE,
                              durability=DurabilityPolicy.TRANSIENT_LOCAL)
@@ -136,6 +165,55 @@ class Explorer(CopterNode):
         self.grid_stamp = time.monotonic()
         self.grid_seq += 1
 
+    def on_tof(self, side, msg):
+        """Check every ToF reading as it arrives (20 Hz) instead of waiting for the 5 Hz mission tick."""
+        ranges = [r for r in msg.ranges if msg.range_min <= r <= msg.range_max]
+        now = time.monotonic()
+        self.tof[side] = (min(ranges) if ranges else float("inf"), now)
+        if self.pose is None or self.phase != "MISSION" or self.mission_started is None:
+            return
+        heading = self.yaw + TOF_SIDES[side]
+        towards = max(0.0, self.vel[0] * math.cos(heading) + self.vel[1] * math.sin(heading))
+        trigger = self.tof_stop + towards ** 2 / (2 * self.brake_acc) + towards * self.tof_latency
+        rng = self.tof[side][0]
+        if rng >= trigger:
+            return
+        back = min(0.3, trigger - rng + 0.05)
+        self.guard_target = (self.pose.x - back * math.cos(heading), self.pose.y - back * math.sin(heading))
+        self.go_to(*self.guard_target, yaw=self.heading)       # at once, not on the next tick
+        if now > self.guard_until:          # a new event, not the same one still being held
+            self.guard_events = [t for t in self.guard_events if now - t < 60.0] + [now]
+            self.get_logger().warn(
+                f"WALL GUARD: {side} ToF {rng:.2f} m < {trigger:.2f} m at {towards:.2f} m/s towards it - "
+                f"backing off {back:.2f} m and re-planning ({len(self.guard_events)} in the last minute)")
+        self.guard_until = now + self.guard_hold
+
+    def on_velocity(self, msg):
+        self.vel = (msg.twist.linear.x, msg.twist.linear.y)
+
+    def tick_guard(self):
+        """While the wall guard holds, fly nothing else; afterwards re-plan from the cell we are really in."""
+        if time.monotonic() < self.guard_until:
+            self.go_to(*self.guard_target, yaw=self.heading)
+            return True
+        self.guard_target = None
+        if len(self.guard_events) >= self.guard_limit:
+            self.abort(f"wall guard fired {len(self.guard_events)} times in a minute - "
+                       "position estimate cannot be trusted near walls")
+            return True
+        self.current = self.nearest_cell()
+        self.queue = []
+        self.spin = []
+        if self.going_home:
+            self.head_home()
+        else:
+            self.state = "SETTLE"
+            self.done_since = None
+            self.arrival_seq = self.grid_seq
+            self.settle_until = time.monotonic() + self.settle_time
+            self.leg_started = time.monotonic()
+        return True
+
     def nearest_cell(self):
         """The mapped cell the drone is over right now (falls back to the last cell we passed)."""
         p = self.pose
@@ -150,6 +228,8 @@ class Explorer(CopterNode):
             "state": self.state, "current": list(self.current), "visited": len(self.visited),
             "mapped": len(self.cells), "going_home": self.going_home,
             "queue": [list(c) for c in self.queue], "camera_seen": len(self.cam_seen),
+            "guard_events": len(self.guard_events),
+            "tof": {k: round(v[0], 2) for k, v in self.tof.items()},
             "elapsed": round(time.monotonic() - (self.mission_started or time.monotonic()), 1),
         })))
 
@@ -193,6 +273,8 @@ class Explorer(CopterNode):
                 f"{self.state} at {self.current}: {len(self.visited)} visited, "
                 f"{len(self.cells)} cells mapped, {self.budget_left():.0f} s left")
 
+        if self.guard_target is not None and self.tick_guard():
+            return
         if self.state == "SETTLE":
             self.tick_settle()
         elif self.state == "SPIN":
@@ -217,7 +299,8 @@ class Explorer(CopterNode):
             return
 
         # look around before deciding, if a spin would show the camera anything new from here
-        if self.camera == "utility" and self.spun_at != self.current and camera_gain(self.cells, self.current, self.cam_seen, self.cam_reach):
+        if (self.camera == "utility" and not self.omni and self.spun_at != self.current
+                and camera_gain(self.cells, self.current, self.cam_seen, self.cam_reach)):
             self.spin = [self.heading + k * math.pi / 2 for k in (1, 2, 3, 4)]
             self.spin_until = time.monotonic() + self.spin_hold
             self.state = "SPIN"
@@ -315,7 +398,7 @@ class Explorer(CopterNode):
         run = straight_run(self.current, self.queue)
         target = self.queue[run - 1]
         x, y = self.centre_of(target)
-        if self.camera == "utility":      # nose (and camera) along the leg
+        if self.camera == "utility" and not self.omni:      # nose (and camera) along the leg
             self.heading = math.atan2(target[1] - self.current[1], target[0] - self.current[0])
         self.go_to(x, y, yaw=self.heading)
         if time.monotonic() - self.leg_started > self.stuck_timeout + 10.0 * (run - 1):
@@ -337,7 +420,7 @@ class Explorer(CopterNode):
                 arrived = self.queue[i]
                 new_cell = arrived not in self.visited
                 for c in self.queue[:i + 1]:
-                    self.camera_view(c, self.heading)
+                    self.camera_view(c, None if self.omni else self.heading)
                 self.visited.update(self.queue[:i + 1])
                 self.current = arrived
                 del self.queue[:i + 1]

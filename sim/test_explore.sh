@@ -44,22 +44,23 @@ rm -f /dev/shm/fastrtps_* /dev/shm/sem.fastrtps_* 2>/dev/null || true
 echo "=== [1/6] simulation up ($WORLD, no GPS) $(date +%H:%M:%S)"
 "$HERE/../scripts/sim_up.sh" "$WORLD" ${HEADLESS:+--headless} --nogps > "$OUT/sim_up.log" 2>&1 \
     || { tail -20 "$OUT/sim_up.log"; die "sim_up.sh returned an error"; }
-sleep 20
 
 # Gazebo dying is the failure that wasted a run: SITL and MAVROS stay up, so everything LOOKS
 # started while every topic is silent. Check the simulator itself before waiting 40 s for an EKF.
 echo "=== [2/6] simulator alive? $(date +%H:%M:%S)"
 pgrep -f "gz sim" > /dev/null || { tail -15 /tmp/airmouse_sim/gazebo.log; die "Gazebo is not running"; }
-timeout 20 ros2 topic echo /clock --once > /dev/null 2>&1 || die "no /clock - Gazebo is not stepping"
+# waits for the FIRST /clock message (up to 60 s) - this replaced a blind `sleep 20` before this step
+timeout 60 ros2 topic echo /clock --once > /dev/null 2>&1 || die "no /clock - Gazebo is not stepping"
 echo "Gazebo is running and publishing /clock"
 
 echo "=== [3/6] SLAM + grid mapper $(date +%H:%M:%S)"
 ros2 launch airmouse slam.launch.py > "$OUT/slam.log" 2>&1 &
-# the EKF needs ~30-60 s to settle before ArduPilot will arm, and Cartographer needs a few scans
-sleep 40
 
-echo "=== [4/6] health check $(date +%H:%M:%S)"
-timeout -k 5 60 python3 "$HERE/health_check.py" 2>&1 | tee "$OUT/health.txt"
+# Was a blind `sleep 40` then a 10 s health check. Now: wait until every link (clock, scan, SLAM map and pose,
+# ArduPilot, ToF) is actually up, then measure for 5 s. The EKF still needs time before ArduPilot will arm, but
+# the explorer keeps retrying the arm, so there is nothing to gain by waiting for it here.
+echo "=== [4/6] health check (waits for every link) $(date +%H:%M:%S)"
+timeout -k 5 150 python3 "$HERE/health_check.py" --wait 120 --seconds 5 2>&1 | tee "$OUT/health.txt"
 grep -q "DEAD" "$OUT/health.txt" && echo "WARNING: something is DEAD above - flying anyway, watch it"
 
 # Is Cartographer actually USING the IMU? use_imu_data can be true while the topic is unmapped or
@@ -67,7 +68,8 @@ grep -q "DEAD" "$OUT/health.txt" && echo "WARNING: something is DEAD above - fly
 # before the flight - never by poking the live sim mid-flight (that froze a whole run).
 echo "--- IMU into SLAM ---"
 grep -h "asked ArduPilot" "$OUT/slam.log" 2>/dev/null | head -2
-sleep 16   # Cartographer logs its measured IMU rate every ~15 s
+# Cartographer logs its measured IMU rate every ~15 s: wait for the first one (was a blind `sleep 16`)
+for _ in $(seq 1 40); do grep -q "imu rate" "$OUT/slam.log" 2>/dev/null && break; sleep 0.5; done
 grep -h "imu rate" "$OUT/slam.log" 2>/dev/null | tail -1 | sed -E "s/.*(imu rate: [0-9.]+ Hz).*/cartographer \1/" \
     | grep . || echo "WARNING: Cartographer reports NO imu rate - the IMU is not reaching SLAM"
 grep -icE "imu.*(missing|dropp|older|unable)" "$OUT/slam.log" 2>/dev/null \
@@ -78,7 +80,8 @@ grep -icE "imu.*(missing|dropp|older|unable)" "$OUT/slam.log" 2>/dev/null \
 # `kill -INT` would do nothing and the bag would never be finalised: restore the default first.
 python3 -c 'import signal,os,sys; signal.signal(signal.SIGINT, signal.SIG_DFL); os.execvp(sys.argv[1], sys.argv[1:])' \
     ros2 bag record -o "$RUNDIR/bag" /scan /clock /tf /tf_static /airmouse/imu \
-    /model/iris_lidar/pose /mavros/local_position/pose /mavros/vision_pose/pose \
+    /model/iris_lidar/pose /mavros/local_position/pose /mavros/vision_pose/pose /airmouse/tof/front \
+    /airmouse/tof/back /airmouse/tof/left /airmouse/tof/right \
     > "$OUT/bag.log" 2>&1 &
 BAG_PID=$!
 

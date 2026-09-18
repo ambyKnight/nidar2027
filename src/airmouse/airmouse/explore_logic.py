@@ -7,7 +7,7 @@ to are the same numbers (see grid_logic.py).
 Two rules keep us alive and inside the arena:
 
 1. We only fly through a side the map calls "open". "unknown" counts as "wall". SLAM is good to
-   ~0.1-0.3 m and the drone is 35 cm wide in a 1 m gap, so guessing is not worth a crash (-50 pts).
+   ~0.1-0.3 m and the drone is 33 cm tip to tip in a 1 m gap, so guessing is not worth a crash (-50 pts).
 2. We only fly into a cell the mapper has actually seen (require_seen). Looking through a 1 m
    doorway the LiDAR maps most of the next cell, so this costs nothing indoors - but it stops the
    drone wandering into open space it has not mapped.

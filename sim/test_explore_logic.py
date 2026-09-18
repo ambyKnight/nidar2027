@@ -85,31 +85,33 @@ def visible_cells(full_map, cell, reach=12):
 
 
 CAM_REACH = 3.0                      # m at which the camera still recognises a person
-CAM_HALF_FOV = math.radians(35)      # OAK-D RGB ~69 deg horizontal
+CAM_HALF_FOV = math.radians(35)      # a single forward camera, OAK-D RGB ~69 deg (the "utility" mode)
 SPIN_TIME = 8.0                      # s for a 360 deg yaw spin at a stop
 
 
-def camera_pass(full_map, cam_seen, a, b, fixed_yaw):
-    """What the camera sees flying from cell a into b: facing the way we fly, or always +x (fixed_yaw)."""
+def camera_pass(full_map, cam_seen, a, b, fixed_yaw, omni=False):
+    """What the camera sees flying from cell a into b: all round (our two 200 deg side cameras), facing the way
+    we fly, or always +x (fixed_yaw)."""
     heading = 0.0 if fixed_yaw else math.atan2(b[1] - a[1], b[0] - a[0])
-    cam_seen |= line_of_sight(full_map, b, CAM_REACH, (heading, CAM_HALF_FOV))
+    cam_seen |= line_of_sight(full_map, b, CAM_REACH, None if omni else (heading, CAM_HALF_FOV))
 
 
 def walk_frontier(full_map, turn_cost_time=1.5, settle=4.0, speed=0.5, camera="fixed", drift=0.0):
     """Frontier exploration with a LiDAR that sees along straight lines. Returns metrics and the final map.
 
-    camera: "fixed" = today's flight (yaw always 0, camera stares along +x, choice ignores it);
-    "utility" = face the way we fly, spin at stops that show the camera something new, and choose stops by
-    utility_step. drift = weight of corridor_penalty in route costs.
+    camera: "fixed" = the old flight (yaw always 0, one 69 deg camera staring along +x, choice ignores it);
+    "utility" = one 69 deg camera facing the way we fly, spin at stops that show it something new, choose
+    stops by utility_step; "omni" = our two 200 deg side cameras (sees all round, never yaws or spins),
+    stops chosen by utility_step. drift = weight of corridor_penalty in route costs.
     """
     known = {c: full_map[c] for c in visible_cells(full_map, HOME)}
     current, visited = HOME, {HOME}
-    fixed = camera == "fixed"
-    cam_seen = line_of_sight(full_map, HOME, CAM_REACH, (0.0, CAM_HALF_FOV))
+    fixed, omni = camera == "fixed", camera == "omni"
+    cam_seen = line_of_sight(full_map, HOME, CAM_REACH, None if omni else (0.0, CAM_HALF_FOV))
     edge = (lambda cs, x, y: drift * corridor_penalty(cs, x, y)) if drift else None
     moves = decisions = legs = spins = degenerate = 0
     for _ in range(2000):
-        if not fixed and camera_gain(full_map, current, cam_seen, CAM_REACH):
+        if not fixed and not omni and camera_gain(full_map, current, cam_seen, CAM_REACH):
             cam_seen |= line_of_sight(full_map, current, CAM_REACH)
             spins += 1
         kind, path = frontier_step(known, current, visited, BLOCKED, cam_seen=None if fixed else cam_seen,
@@ -124,7 +126,7 @@ def walk_frontier(full_map, turn_cost_time=1.5, settle=4.0, speed=0.5, camera="f
             at, i = path[i + n - 1], i + n
         for cell in path:
             degenerate += int(corridor_penalty(full_map, current, cell))
-            camera_pass(full_map, cam_seen, current, cell, fixed)
+            camera_pass(full_map, cam_seen, current, cell, fixed, omni)
             current, moves = cell, moves + 1
             visited.add(cell)
         for c in visible_cells(full_map, current):
@@ -143,9 +145,10 @@ def walk_frontier(full_map, turn_cost_time=1.5, settle=4.0, speed=0.5, camera="f
 
 def check_frontier(full_map, failures, name):
     runs = {}
-    for label, kw in (("fixed-yaw nearest frontier (today)", dict(camera="fixed")),
-                      ("utility + camera", dict(camera="utility")),
-                      ("utility + camera + drift 1.0", dict(camera="utility", drift=1.0))):
+    for label, kw in (("fixed-yaw nearest frontier (old)", dict(camera="fixed")),
+                      ("utility + one 69 deg camera + spins", dict(camera="utility")),
+                      ("utility + 2x200 deg cameras (ours)", dict(camera="omni")),
+                      ("utility + 2x200 deg cameras + drift 1.0", dict(camera="omni", drift=1.0))):
         r = runs[label] = walk_frontier(full_map, **kw)
         visited, known = r["visited"], r["known"]
         missed = sorted(set(full_map) - set(known))
@@ -154,7 +157,7 @@ def check_frontier(full_map, failures, name):
         home = path_home(known, far, visited, HOME, BLOCKED)
         direct = path_home(known, far, visited, HOME, BLOCKED, through_seen=True)
         ok = not missed and not outside and home is not None and direct is not None and len(direct) <= len(home)
-        if label != "fixed-yaw nearest frontier (today)":
+        if kw["camera"] != "fixed":
             ok = ok and r["cam"] >= 0.98     # the point of it: the camera has looked at (nearly) every cell
         print(f"{'PASS' if ok else 'FAIL'}  {name}, FRONTIER {label}: mapped {len(known)}/{len(full_map)}, "
               f"camera saw {r['cam']:.0%}, {r['moves']} moves, {r['decisions']} stops, {r['spins']} spins, "
@@ -167,7 +170,7 @@ def check_frontier(full_map, failures, name):
             print("      no route home")
         failures += 0 if ok else 1
     centres = room_centres(full_map, BLOCKED)
-    got = [c for c in centres if any((c[0] + a, c[1] + b) in runs["utility + camera"]["visited"]
+    got = [c for c in centres if any((c[0] + a, c[1] + b) in runs["utility + 2x200 deg cameras (ours)"]["visited"]
                                      for a in (-1, 0, 1) for b in (-1, 0, 1))]
     print(f"      room centres on the TRUE map: {len(centres)}, flown to (within 1 cell, utility): {len(got)}")
     return failures

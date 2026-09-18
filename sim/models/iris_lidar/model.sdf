@@ -671,6 +671,123 @@
     </joint>
     <!-- ===== end AirMouse LiDAR ===== -->
 
+    <!-- ToF range sensor (front), VL53L1X-like -->
+    <link name="tof_front_link">
+      <pose>0.1167 0.0000 0.05 0 0 0.0</pose>
+      <inertial>
+        <mass>0.005</mass>
+        <inertia><ixx>1e-7</ixx><iyy>1e-7</iyy><izz>1e-7</izz><ixy>0</ixy><ixz>0</ixz><iyz>0</iyz></inertia>
+      </inertial>
+      <sensor name="tof_front" type="gpu_lidar">
+        <gz_frame_id>tof_front_link</gz_frame_id>
+        <topic>tof_front</topic>
+        <update_rate>20</update_rate>
+        <always_on>true</always_on>
+        <lidar>
+          <scan>
+            <horizontal><samples>9</samples><resolution>1</resolution>
+              <min_angle>-0.2356</min_angle><max_angle>0.2356</max_angle></horizontal>
+            <vertical><samples>1</samples><resolution>1</resolution>
+              <min_angle>0</min_angle><max_angle>0</max_angle></vertical>
+          </scan>
+          <range><min>0.04</min><max>4.0</max><resolution>0.001</resolution></range>
+          <noise><type>gaussian</type><mean>0.0</mean><stddev>0.005</stddev></noise>
+        </lidar>
+      </sensor>
+    </link>
+    <joint name="tof_front_joint" type="fixed">
+      <parent>iris_with_standoffs::base_link</parent>
+      <child>tof_front_link</child>
+    </joint>
+
+    <!-- ToF range sensor (left), VL53L1X-like -->
+    <link name="tof_left_link">
+      <pose>-0.0000 0.1167 0.05 0 0 1.5708</pose>
+      <inertial>
+        <mass>0.005</mass>
+        <inertia><ixx>1e-7</ixx><iyy>1e-7</iyy><izz>1e-7</izz><ixy>0</ixy><ixz>0</ixz><iyz>0</iyz></inertia>
+      </inertial>
+      <sensor name="tof_left" type="gpu_lidar">
+        <gz_frame_id>tof_left_link</gz_frame_id>
+        <topic>tof_left</topic>
+        <update_rate>20</update_rate>
+        <always_on>true</always_on>
+        <lidar>
+          <scan>
+            <horizontal><samples>9</samples><resolution>1</resolution>
+              <min_angle>-0.2356</min_angle><max_angle>0.2356</max_angle></horizontal>
+            <vertical><samples>1</samples><resolution>1</resolution>
+              <min_angle>0</min_angle><max_angle>0</max_angle></vertical>
+          </scan>
+          <range><min>0.04</min><max>4.0</max><resolution>0.001</resolution></range>
+          <noise><type>gaussian</type><mean>0.0</mean><stddev>0.005</stddev></noise>
+        </lidar>
+      </sensor>
+    </link>
+    <joint name="tof_left_joint" type="fixed">
+      <parent>iris_with_standoffs::base_link</parent>
+      <child>tof_left_link</child>
+    </joint>
+
+    <!-- ToF range sensor (back), VL53L1X-like -->
+    <link name="tof_back_link">
+      <pose>-0.1167 0.0000 0.05 0 0 3.14159</pose>
+      <inertial>
+        <mass>0.005</mass>
+        <inertia><ixx>1e-7</ixx><iyy>1e-7</iyy><izz>1e-7</izz><ixy>0</ixy><ixz>0</ixz><iyz>0</iyz></inertia>
+      </inertial>
+      <sensor name="tof_back" type="gpu_lidar">
+        <gz_frame_id>tof_back_link</gz_frame_id>
+        <topic>tof_back</topic>
+        <update_rate>20</update_rate>
+        <always_on>true</always_on>
+        <lidar>
+          <scan>
+            <horizontal><samples>9</samples><resolution>1</resolution>
+              <min_angle>-0.2356</min_angle><max_angle>0.2356</max_angle></horizontal>
+            <vertical><samples>1</samples><resolution>1</resolution>
+              <min_angle>0</min_angle><max_angle>0</max_angle></vertical>
+          </scan>
+          <range><min>0.04</min><max>4.0</max><resolution>0.001</resolution></range>
+          <noise><type>gaussian</type><mean>0.0</mean><stddev>0.005</stddev></noise>
+        </lidar>
+      </sensor>
+    </link>
+    <joint name="tof_back_joint" type="fixed">
+      <parent>iris_with_standoffs::base_link</parent>
+      <child>tof_back_link</child>
+    </joint>
+
+    <!-- ToF range sensor (right), VL53L1X-like -->
+    <link name="tof_right_link">
+      <pose>-0.0000 -0.1167 0.05 0 0 -1.5708</pose>
+      <inertial>
+        <mass>0.005</mass>
+        <inertia><ixx>1e-7</ixx><iyy>1e-7</iyy><izz>1e-7</izz><ixy>0</ixy><ixz>0</ixz><iyz>0</iyz></inertia>
+      </inertial>
+      <sensor name="tof_right" type="gpu_lidar">
+        <gz_frame_id>tof_right_link</gz_frame_id>
+        <topic>tof_right</topic>
+        <update_rate>20</update_rate>
+        <always_on>true</always_on>
+        <lidar>
+          <scan>
+            <horizontal><samples>9</samples><resolution>1</resolution>
+              <min_angle>-0.2356</min_angle><max_angle>0.2356</max_angle></horizontal>
+            <vertical><samples>1</samples><resolution>1</resolution>
+              <min_angle>0</min_angle><max_angle>0</max_angle></vertical>
+          </scan>
+          <range><min>0.04</min><max>4.0</max><resolution>0.001</resolution></range>
+          <noise><type>gaussian</type><mean>0.0</mean><stddev>0.005</stddev></noise>
+        </lidar>
+      </sensor>
+    </link>
+    <joint name="tof_right_joint" type="fixed">
+      <parent>iris_with_standoffs::base_link</parent>
+      <child>tof_right_link</child>
+    </joint>
+
+
     <!-- Ground truth for testing only: publish the model's true pose on /model/iris_lidar/pose
          (bridged to ROS by sim_up.sh) so we can measure SLAM error. The real drone has no such thing. -->
     <plugin filename="gz-sim-pose-publisher-system" name="gz::sim::systems::PosePublisher">
