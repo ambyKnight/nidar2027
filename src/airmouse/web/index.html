@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -7,11 +7,12 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <div class="gcs-container">
-    <!-- Header Bar -->
-    <header class="gcs-header">
+  <div class="gcs">
+
+    <!-- ── Command bar ─────────────────────────────────────────── -->
+    <header class="topbar">
       <div class="brand">
-        <div class="brand-logo">
+        <div class="brand-logo" aria-hidden="true">
           <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor">
             <path d="M12 2L1 21h22L12 2zm0 3.84L19.46 19H4.54L12 5.84zM11 10h2v4h-2zm0 6h2v2h-2z"/>
           </svg>
@@ -22,32 +23,78 @@
         </div>
       </div>
 
-      <div class="header-status">
-        <div class="status-item">
-          <span class="label">MISSION PHASE</span>
+      <div class="topbar-center">
+        <div class="stat">
+          <span class="stat-label">MISSION PHASE</span>
           <span id="phase-badge" class="badge badge-idle">STANDBY</span>
         </div>
-        <div class="status-item">
-          <span class="label">FLIGHT TIME</span>
-          <span id="flight-timer" class="value timer">00:00</span>
+        <div class="stat">
+          <span class="stat-label">FLIGHT TIME</span>
+          <span id="flight-timer" class="stat-value mono">00:00</span>
         </div>
-        <div class="status-item">
-          <span class="label">LINK</span>
-          <div id="connection-pill" class="conn-pill disconnected">
-            <span class="dot"></span>
-            <span id="connection-label">DISCONNECTED</span>
-          </div>
+        <div class="stat">
+          <span class="stat-label">TELEMETRY RATE</span>
+          <span id="msg-rate" class="stat-value mono">0 <span class="unit">Hz</span></span>
         </div>
+      </div>
+
+      <div class="topbar-right">
+        <div id="connection-pill" class="conn-pill disconnected" role="status">
+          <span class="dot"></span>
+          <span id="connection-label">DISCONNECTED</span>
+        </div>
+        <button id="btn-theme" class="icon-btn" title="Toggle light / dark theme" aria-label="Toggle theme">
+          <span id="theme-icon">☾</span>
+        </button>
       </div>
     </header>
 
-    <!-- Main Workspace -->
-    <div class="gcs-main">
-      <!-- Left Telemetry Sidebar -->
-      <aside class="telemetry-sidebar">
-        <!-- Drone Pose Card -->
-        <div class="telemetry-card">
-          <div class="card-title">DRONE TELEMETRY</div>
+    <!-- ── Critical alert banner ───────────────────────────────── -->
+    <div id="alert-banner" class="alert-banner hidden" role="alert">
+      <span class="alert-icon">⚠</span>
+      <span id="alert-banner-text">—</span>
+      <button id="alert-dismiss" class="alert-dismiss" aria-label="Dismiss alert">✕</button>
+    </div>
+
+    <!-- ── KPI strip ───────────────────────────────────────────── -->
+    <section class="kpi-strip" aria-label="Mission key figures">
+      <div class="kpi">
+        <span class="kpi-label">CELLS VISITED</span>
+        <span id="val-visited" class="kpi-value accent">0</span>
+      </div>
+      <div class="kpi">
+        <span class="kpi-label">CELLS MAPPED</span>
+        <span id="val-mapped" class="kpi-value">0</span>
+      </div>
+      <div class="kpi">
+        <span class="kpi-label">QUEUE DEPTH</span>
+        <span id="val-queue" class="kpi-value">0</span>
+      </div>
+      <div class="kpi">
+        <span class="kpi-label">CAMERA COVERAGE</span>
+        <span id="val-camera-seen" class="kpi-value">0</span>
+      </div>
+      <div class="kpi">
+        <span class="kpi-label">WALL GUARD EVENTS</span>
+        <span id="val-guard-events" class="kpi-value">0</span>
+      </div>
+      <div class="kpi">
+        <span class="kpi-label">SURVIVORS</span>
+        <span id="val-survivor-count" class="kpi-value warn">0</span>
+      </div>
+      <div class="kpi kpi-wide">
+        <span class="kpi-label">RETURN TO HOME</span>
+        <span id="val-going-home" class="kpi-value status-off">NO</span>
+      </div>
+    </section>
+
+    <!-- ── Workspace ───────────────────────────────────────────── -->
+    <div class="workspace">
+
+      <!-- Left: flight telemetry -->
+      <aside class="panel panel-left" aria-label="Flight telemetry">
+        <section class="card">
+          <h2 class="card-title">DRONE TELEMETRY</h2>
           <div class="metric-grid">
             <div class="metric">
               <span class="metric-label">POS X</span>
@@ -62,130 +109,127 @@
               <span id="val-pos-z" class="metric-val">0.00 <span class="unit">m</span></span>
             </div>
             <div class="metric">
+              <span class="metric-label">GND SPEED</span>
+              <span id="val-speed" class="metric-val">0.00 <span class="unit">m/s</span></span>
+            </div>
+          </div>
+
+          <div class="heading-row">
+            <div class="compass" aria-hidden="true">
+              <svg viewBox="0 0 60 60" width="60" height="60">
+                <circle cx="30" cy="30" r="27" class="compass-ring"/>
+                <text x="30" y="11" class="compass-tick">N</text>
+                <text x="52" y="34" class="compass-tick">E</text>
+                <text x="30" y="56" class="compass-tick">S</text>
+                <text x="8"  y="34" class="compass-tick">W</text>
+                <g id="compass-needle">
+                  <polygon points="30,10 35,34 30,29 25,34" class="compass-needle"/>
+                </g>
+              </svg>
+            </div>
+            <div class="heading-read">
               <span class="metric-label">HEADING</span>
-              <span id="val-yaw" class="metric-val">0.0<span class="unit">°</span></span>
+              <span id="val-yaw" class="metric-val big">0.0<span class="unit">°</span></span>
+              <span class="metric-label">CURRENT CELL</span>
+              <span id="val-current-cell" class="metric-val accent">(0, 0)</span>
             </div>
           </div>
-          <div class="current-cell-row">
-            <span class="cell-label">CURRENT CELL:</span>
-            <span id="val-current-cell" class="cell-coords">(0, 0)</span>
-          </div>
-        </div>
+        </section>
 
-        <!-- Exploration Metrics Card -->
-        <div class="telemetry-card">
-          <div class="card-title">EXPLORATION METRICS</div>
-          <div class="metric-list">
-            <div class="metric-row">
-              <span class="label">Cells Visited</span>
-              <span id="val-visited" class="value highlight">0</span>
-            </div>
-            <div class="metric-row">
-              <span class="label">Cells Mapped</span>
-              <span id="val-mapped" class="value">0</span>
-            </div>
-            <div class="metric-row">
-              <span class="label">Waypoints in Queue</span>
-              <span id="val-queue" class="value">0</span>
-            </div>
-            <div class="metric-row">
-              <span class="label">Camera Coverage</span>
-              <span id="val-camera-seen" class="value">0 cells</span>
-            </div>
-            <div class="metric-row">
-              <span class="label">Returning Home</span>
-              <span id="val-going-home" class="value status-off">NO</span>
-            </div>
-            <div class="metric-row">
-              <span class="label">Wall Guard Events</span>
-              <span id="val-guard-events" class="value">0</span>
-            </div>
-          </div>
-        </div>
-
-        <!-- Obstacle Clearance (ToF) -->
-        <div class="telemetry-card">
-          <div class="card-title">OBSTACLE CLEARANCE (ToF)</div>
-          <div class="tof-grid">
+        <section class="card">
+          <h2 class="card-title">OBSTACLE CLEARANCE (ToF)</h2>
+          <div class="tof-layout">
             <div class="tof-box" id="tof-fwd-box">
               <span class="tof-label">FRONT</span>
               <span id="tof-fwd" class="tof-val">--</span>
+              <span class="tof-bar"><i></i></span>
+            </div>
+            <div class="tof-mid">
+              <div class="tof-box" id="tof-left-box">
+                <span class="tof-label">LEFT</span>
+                <span id="tof-left" class="tof-val">--</span>
+                <span class="tof-bar"><i></i></span>
+              </div>
+              <div class="tof-hub" aria-hidden="true">◈</div>
+              <div class="tof-box" id="tof-right-box">
+                <span class="tof-label">RIGHT</span>
+                <span id="tof-right" class="tof-val">--</span>
+                <span class="tof-bar"><i></i></span>
+              </div>
             </div>
             <div class="tof-box" id="tof-bwd-box">
               <span class="tof-label">BACK</span>
               <span id="tof-bwd" class="tof-val">--</span>
-            </div>
-            <div class="tof-box" id="tof-left-box">
-              <span class="tof-label">LEFT</span>
-              <span id="tof-left" class="tof-val">--</span>
-            </div>
-            <div class="tof-box" id="tof-right-box">
-              <span class="tof-label">RIGHT</span>
-              <span id="tof-right" class="tof-val">--</span>
+              <span class="tof-bar"><i></i></span>
             </div>
           </div>
-        </div>
+          <p class="card-foot">Danger &lt; 0.30 m · Caution &lt; 0.50 m</p>
+        </section>
 
-        <!-- Survivors Card -->
-        <div class="telemetry-card">
-          <div class="card-title">SURVIVORS TAGGED (<span id="val-survivor-count">0</span>)</div>
-          <div id="survivor-list" class="survivor-list">
-            <span class="no-data">No survivors tagged yet</span>
-          </div>
-        </div>
-
-        <!-- Map Legend Card -->
-        <div class="telemetry-card legend-card">
-          <div class="card-title">MAP LEGEND</div>
+        <section class="card legend-card">
+          <h2 class="card-title">MAP LEGEND</h2>
           <div class="legend-items">
-            <div class="legend-item">
-              <span class="legend-line wall-line"></span>
-              <span class="legend-text">Wall (Solid Red)</span>
-            </div>
-            <div class="legend-item">
-              <span class="legend-line open-line"></span>
-              <span class="legend-text">Open Passage (Green)</span>
-            </div>
-            <div class="legend-item">
-              <span class="legend-line path-line"></span>
-              <span class="legend-text">Planned Route (Cyan)</span>
-            </div>
-            <div class="legend-item">
-              <span class="legend-box survivor-legend-box"></span>
-              <span class="legend-text">Survivor Tag (Orange)</span>
-            </div>
-            <div class="legend-item">
-              <span class="legend-box visited-box"></span>
-              <span class="legend-text">Visited Cell</span>
-            </div>
-            <div class="legend-item">
-              <span class="legend-box drone-box"></span>
-              <span class="legend-text">Drone Position & Yaw</span>
-            </div>
+            <div class="legend-item"><span class="legend-line wall-line"></span><span>Wall</span></div>
+            <div class="legend-item"><span class="legend-line open-line"></span><span>Open passage</span></div>
+            <div class="legend-item"><span class="legend-line path-line"></span><span>Planned route</span></div>
+            <div class="legend-item"><span class="legend-box survivor-legend-box"></span><span>Survivor tag</span></div>
+            <div class="legend-item"><span class="legend-box visited-box"></span><span>Visited cell</span></div>
+            <div class="legend-item"><span class="legend-box drone-box"></span><span>Drone &amp; yaw</span></div>
           </div>
-        </div>
+        </section>
       </aside>
 
-      <!-- Center Map Viewport -->
+      <!-- Center: map -->
       <main class="map-viewport">
         <canvas id="map-canvas"></canvas>
 
-        <!-- On-canvas Floating Controls -->
         <div class="map-controls">
-          <button id="btn-zoom-in" title="Zoom In">+</button>
-          <button id="btn-zoom-out" title="Zoom Out">−</button>
-          <button id="btn-fit-view" title="Fit Entire Grid">Fit</button>
-          <button id="btn-follow-drone" class="active" title="Toggle Follow Drone">Follow</button>
+          <button id="btn-zoom-in" title="Zoom in (+)">+</button>
+          <button id="btn-zoom-out" title="Zoom out (−)">−</button>
+          <button id="btn-fit-view" title="Fit entire grid (F)">Fit</button>
+          <button id="btn-follow-drone" class="active" title="Follow drone (C)">Follow</button>
+          <button id="btn-clear-trail" title="Clear breadcrumb trail (T)">Trail</button>
         </div>
 
         <div class="map-overlay-info">
           <span id="map-grid-count">0 cells rendered</span>
           <span class="divider">|</span>
-          <span id="map-scale-info">Scale: 50 px/m</span>
+          <span id="map-scale-info">Scale: 55 px/m</span>
+          <span class="divider">|</span>
+          <span id="map-cursor">x 0.00 · y 0.00</span>
         </div>
       </main>
+
+      <!-- Right: survivors + event log -->
+      <aside class="panel panel-right" aria-label="Detections and events">
+        <section class="card">
+          <h2 class="card-title">SURVIVORS TAGGED</h2>
+          <div id="survivor-list" class="survivor-list">
+            <span class="no-data">No survivors tagged yet</span>
+          </div>
+        </section>
+
+        <section class="card card-grow">
+          <h2 class="card-title">
+            EVENT LOG
+            <button id="btn-clear-log" class="mini-btn" title="Clear log">clear</button>
+          </h2>
+          <div id="event-log" class="event-log" aria-live="polite"></div>
+        </section>
+      </aside>
     </div>
+
+    <!-- ── Status bar ──────────────────────────────────────────── -->
+    <footer class="statusbar">
+      <span id="status-endpoint" class="mono">ws://—:9090</span>
+      <span class="divider">|</span>
+      <span id="status-last-msg" class="mono">last packet —</span>
+      <span class="spacer"></span>
+      <span class="mono hint">Shortcuts: +/− zoom · F fit · C follow · T trail · L theme</span>
+    </footer>
   </div>
+
+  <div id="toast-stack" class="toast-stack" aria-live="assertive"></div>
 
   <script src="app.js"></script>
 </body>
