@@ -229,17 +229,21 @@ class Explorer(CopterNode):
         return cell[0] * self.cell_size, cell[1] * self.cell_size
 
     def publish_state(self):
+        elapsed = max(0.0, (self.get_clock().now() - self.mission_started).nanoseconds / 1e9) if self.mission_started is not None else 0.0
         self.state_pub.publish(String(data=json.dumps({
             "state": self.state, "current": list(self.current), "visited": len(self.visited),
             "mapped": len(self.cells), "going_home": self.going_home,
             "queue": [list(c) for c in self.queue], "camera_seen": len(self.cam_seen),
             "guard_events": len(self.guard_events),
             "tof": {k: round(v[0], 2) for k, v in self.tof.items()},
-            "elapsed": round(time.monotonic() - (self.mission_started or time.monotonic()), 1),
+            "elapsed": round(elapsed, 1),
         })))
 
     def budget_left(self):
-        return self.mission_timeout - (time.monotonic() - self.mission_started)
+        if self.mission_started is None:
+            return self.mission_timeout
+        elapsed = max(0.0, (self.get_clock().now() - self.mission_started).nanoseconds / 1e9)
+        return self.mission_timeout - elapsed
 
     def time_to_go_home(self):
         """Would the trip home (at WP_SPD, 1.5 s per corner, plus home_margin) eat the rest of the budget?"""
@@ -266,7 +270,7 @@ class Explorer(CopterNode):
     # --- the mission -----------------------------------------------------------
     def mission_tick(self):
         if self.mission_started is None:
-            self.mission_started = time.monotonic()
+            self.mission_started = self.get_clock().now()
             self.leg_started = time.monotonic()
             self.settle_until = time.monotonic() + self.settle_time
             self.get_logger().info("exploring - no prior knowledge of the maze")
