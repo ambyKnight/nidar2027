@@ -17,7 +17,7 @@ import math
 
 from airmouse.explore_logic import (NEIGHBOUR, camera_gain, corridor_penalty, frontier_step, line_of_sight,
                                     room_centres, next_step, open_neighbours, passable, path_home, side_between,
-                                    straight_run)
+                                    straight_run, utility_step)
 
 TRUTH = Path(__file__).parent / "worlds/practice_6x6_truth.json"
 HOME = (0, 0)
@@ -266,6 +266,29 @@ def main():
     assert side_between((0, 0), (1, 0)) == "+x" and side_between((0, 0), (0, 2)) is None
     assert straight_run((0, 0), [(1, 0), (2, 0), (2, 1)]) == 2 and straight_run((0, 0), [(1, 0)]) == 1
     assert straight_run((0, 0), [(0, 1), (1, 1)]) == 1 and straight_run((0, 0), []) == 0
+
+    # corridor_penalty: 1 for a hop into a cell with one lateral wall, and 0 for two or none
+    c1 = {(0, 0): {"+x": "open"}, (1, 0): {"-x": "open", "+y": "wall", "-y": "open"}}
+    c2 = {(0, 0): {"+x": "open"}, (1, 0): {"-x": "open", "+y": "wall", "-y": "wall"}}
+    c0 = {(0, 0): {"+x": "open"}, (1, 0): {"-x": "open", "+y": "open", "-y": "open"}}
+    assert corridor_penalty(c1, (0, 0), (1, 0)) == 1.0
+    assert corridor_penalty(c2, (0, 0), (1, 0)) == 0.0
+    assert corridor_penalty(c0, (0, 0), (1, 0)) == 0.0
+
+    # line_of_sight with a sector only returns cells inside that angle
+    c_open = {(x, y): {"+x": "open", "-x": "open", "+y": "open", "-y": "open"}
+              for x in range(-3, 4) for y in range(-3, 4)}
+    los_sec = line_of_sight(c_open, (0, 0), 2.5, sector=(0.0, math.pi / 4))
+    for c in los_sec:
+        if c != (0, 0):
+            ang = (math.atan2(c[1], c[0]) + math.pi) % (2 * math.pi) - math.pi
+            assert abs(ang) <= math.pi / 4 + 1e-6, f"{c} outside sector"
+    assert (1, 0) in los_sec and (2, 0) in los_sec
+    assert (0, 1) not in los_sec and (-1, 0) not in los_sec and (0, -1) not in los_sec
+
+    # utility_step returns (None, []) when everything is mapped and cam_seen covers all cells
+    assert utility_step(full_map, (0, 0), set(), set(full_map.keys()), BLOCKED) == (None, [])
+
     print("ALL PASS" if not failures else f"{failures} FAILURE(S)")
     return 1 if failures else 0
 
