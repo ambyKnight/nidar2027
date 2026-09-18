@@ -96,7 +96,8 @@ def camera_pass(full_map, cam_seen, a, b, fixed_yaw, omni=False):
     cam_seen |= line_of_sight(full_map, b, CAM_REACH, None if omni else (heading, CAM_HALF_FOV))
 
 
-def walk_frontier(full_map, turn_cost_time=1.5, settle=4.0, speed=0.5, camera="fixed", drift=0.0):
+def walk_frontier(full_map, turn_cost_time=1.5, settle=4.0, speed=0.5, camera="fixed", drift=0.0,
+                  locality=5.0, centre_reach=6):
     """Frontier exploration with a LiDAR that sees along straight lines. Returns metrics and the final map.
 
     camera: "fixed" = the old flight (yaw always 0, one 69 deg camera staring along +x, choice ignores it);
@@ -110,12 +111,14 @@ def walk_frontier(full_map, turn_cost_time=1.5, settle=4.0, speed=0.5, camera="f
     cam_seen = line_of_sight(full_map, HOME, CAM_REACH, None if omni else (0.0, CAM_HALF_FOV))
     edge = (lambda cs, x, y: drift * corridor_penalty(cs, x, y)) if drift else None
     moves = decisions = legs = spins = degenerate = 0
+    trips = []          # cells flown per decision: long trips across the building are the zig-zag
     for _ in range(2000):
         if not fixed and not omni and camera_gain(full_map, current, cam_seen, CAM_REACH):
             cam_seen |= line_of_sight(full_map, current, CAM_REACH)
             spins += 1
-        kind, path = frontier_step(known, current, visited, BLOCKED, cam_seen=None if fixed else cam_seen,
-                                   cam_reach=CAM_REACH, edge_cost=edge)
+        kind, path = frontier_step(known, current, visited, BLOCKED, centre_reach=centre_reach,
+                                   cam_seen=None if fixed else cam_seen, cam_reach=CAM_REACH, edge_cost=edge,
+                                   locality=locality)
         if kind == "done":
             break
         decisions += 1
@@ -124,6 +127,7 @@ def walk_frontier(full_map, turn_cost_time=1.5, settle=4.0, speed=0.5, camera="f
             n = straight_run(at, path[i:])
             legs += 1
             at, i = path[i + n - 1], i + n
+        trips.append(len(path))
         for cell in path:
             degenerate += int(corridor_penalty(full_map, current, cell))
             camera_pass(full_map, cam_seen, current, cell, fixed, omni)
@@ -140,7 +144,8 @@ def walk_frontier(full_map, turn_cost_time=1.5, settle=4.0, speed=0.5, camera="f
         home_legs, at, i = home_legs + 1, home[i + n - 1], i + n
     est = (moves + len(home)) / speed + decisions * settle + (legs + home_legs) * turn_cost_time + spins * SPIN_TIME
     return dict(visited=visited, known=known, moves=moves, decisions=decisions, legs=legs, est=est,
-                cam=len(cam_seen & set(full_map)) / len(full_map), spins=spins, degenerate=degenerate)
+                cam=len(cam_seen & set(full_map)) / len(full_map), spins=spins, degenerate=degenerate,
+                long_trips=sum(1 for n in trips if n >= 7), longest=max(trips or [0]))
 
 
 def check_frontier(full_map, failures, name):

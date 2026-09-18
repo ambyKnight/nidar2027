@@ -102,6 +102,12 @@ class Explorer(CopterNode):
         # the nose points along each leg and the drone spins at stops that would show the camera new cells.
         self.camera = self.declare_parameter("camera", "utility").value
         self.cam_reach = self.declare_parameter("cam_reach", 3.0).value
+        # How much a far target is penalised: its score is multiplied by exp(-route_cost / locality), so every
+        # `locality` cells of flight cost a factor of e. Without it the choice is scale-free and the drone crosses
+        # the whole building for a big room instead of finishing the one it is in (run 21 flew 7, then 10, then 14
+        # cells across). Offline: rooms_small_4 44 -> 37 moves (longest trip 13 -> 7 cells), rooms_small_5 89 -> 65
+        # (25 -> 11), map and camera coverage unchanged at 100%. 0 restores the old behaviour.
+        self.locality = self.declare_parameter("locality", 5.0).value
         cam_hfov = self.declare_parameter("cam_hfov_deg", 360.0).value
         self.omni = cam_hfov >= 360.0
         self.cam_half_fov = math.radians(cam_hfov / 2.0)
@@ -111,6 +117,15 @@ class Explorer(CopterNode):
         # towards that wall (v^2 / 2 brake_acc + v * tof_latency): at 1 m/s a 10 cm trigger alone is ~35 cm
         # too late. On firing it holds a point backed away from the wall, then re-plans from where it is.
         self.tof_stop = self.declare_parameter("tof_stop", 0.10).value
+        # Where the guard retreats to. Backing off to just past the trigger distance does not work: at a standstill
+        # that is 5-6 cm, the drone drifts straight back onto the wall and fires again, and three or four of those
+        # at one spot ended runs 21 and 22. Retreat to a real clearance instead.
+        self.tof_safe = self.declare_parameter("tof_safe", 0.30).value
+        # A firing only counts towards guard_limit once the drone has actually moved this far since the last one.
+        # Otherwise one wall the drone cannot get off counts as N separate events and aborts a healthy mission.
+        self.guard_move = self.declare_parameter("guard_move", 0.30).value
+        # ...but a wall it truly cannot clear must still end the mission, with a reason that says so.
+        self.guard_stuck = self.declare_parameter("guard_stuck", 10).value
         self.brake_acc = self.declare_parameter("brake_acc", 2.0).value        # WP_ACC in indoor.parm
         self.tof_latency = self.declare_parameter("tof_latency", 0.15).value  # sensor + ROS + FC, s
         self.guard_hold = self.declare_parameter("guard_hold", 1.5).value
@@ -159,7 +174,9 @@ class Explorer(CopterNode):
         self.create_subscription(LaserScan, "/scan", self.on_scan, qos_profile_sensor_data)
         self.guard_until = 0.0     # holding a backed-off point until then
         self.guard_target = None
-        self.guard_events = []     # monotonic times the guard fired
+        self.guard_events = []     # monotonic times the guard fired (counted ones: the drone had moved between)
+        self.guard_last_xy = None  # where the last counted firing happened
+        self.guard_repeats = 0     # firings at that same spot
         # velocity from the flight controller's EKF (map frame), NOT from differencing poses: in run 17 the pose
         # difference read 1.4-1.9 m/s when Gazebo truth never exceeded 1.11 m/s, and fired the guard 4 times for nothing
         self.vel = (0.0, 0.0)
@@ -197,14 +214,22 @@ class Explorer(CopterNode):
         rng = self.tof[side][0]
         if rng >= trigger:
             return
-        back = min(0.3, trigger - rng + 0.05)
+        # retreat to tof_safe of clearance, or far enough to stop, whichever is more
+        back = min(0.5, max(self.tof_safe - rng, trigger - rng + 0.05))
         self.guard_target = (self.pose.x - back * math.cos(heading), self.pose.y - back * math.sin(heading))
         self.go_to(*self.guard_target, yaw=self.heading)       # at once, not on the next tick
         if now > self.guard_until:          # a new event, not the same one still being held
-            self.guard_events = [t for t in self.guard_events if now - t < 60.0] + [now]
+            here = (self.pose.x, self.pose.y)
+            moved = self.guard_last_xy is None or math.dist(here, self.guard_last_xy) > self.guard_move
+            if moved:
+                self.guard_events = [t for t in self.guard_events if now - t < 60.0] + [now]
+                self.guard_last_xy, self.guard_repeats = here, 0
+            else:
+                self.guard_repeats += 1     # same wall, same spot: not a new event, but not forever either
             self.get_logger().warn(
                 f"WALL GUARD: {side} ToF {rng:.2f} m < {trigger:.2f} m at {towards:.2f} m/s towards it - "
-                f"backing off {back:.2f} m and re-planning ({len(self.guard_events)} in the last minute)")
+                f"backing off {back:.2f} m and re-planning ({len(self.guard_events)} in the last minute"
+                f"{f', {self.guard_repeats} at this spot' if self.guard_repeats else ''})")
         self.guard_until = now + self.guard_hold
 
     def on_scan(self, msg):
@@ -230,8 +255,12 @@ class Explorer(CopterNode):
             self.go_to(*self.guard_target, yaw=self.heading)
             return True
         self.guard_target = None
+        if self.guard_repeats >= self.guard_stuck:
+            self.abort(f"wall guard fired {self.guard_repeats} times without the drone clearing the wall - "
+                       "it cannot back away from it")
+            return True
         if len(self.guard_events) >= self.guard_limit:
-            self.abort(f"wall guard fired {len(self.guard_events)} times in a minute - "
+            self.abort(f"wall guard fired {len(self.guard_events)} times in a minute at different places - "
                        "position estimate cannot be trusted near walls")
             return True
         self.current = self.nearest_cell()
@@ -292,7 +321,7 @@ class Explorer(CopterNode):
         if self.strategy == "frontier":
             return frontier_step(self.cells, here, self.visited, self.blocked, centre_reach=self.centre_reach,
                                  cam_seen=self.cam_seen if self.camera == "utility" else None,
-                                 cam_reach=self.cam_reach, edge_cost=self.edge_cost)
+                                 cam_reach=self.cam_reach, edge_cost=self.edge_cost, locality=self.locality)
         return next_step(self.cells, here, self.visited, self.blocked, max_leg=self.max_leg)
 
     # --- the mission -----------------------------------------------------------

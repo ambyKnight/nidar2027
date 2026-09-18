@@ -53,6 +53,7 @@ Runs 1-6 used `plan_tour.py` (route from the true maze). Runs 7+ are autonomous.
 | 19 | **ToF sensors 10 Hz + explorer logs the LiDAR rate** | **best run so far: 116.2 s, map 116/120 cells (97%), 476/480 sides (99%), SLAM mean 0.058 m max 0.180 m, 1 guard firing, autonomous exit flown, exit 0.** LiDAR steady at 10.0 Hz |
 | 20 | LiDAR cut 450 -> 230 points (to save GPU), RViz2 on | **FAILED: SLAM came apart - yaw p95 68 deg, position max 18 m, map 46/120 (38%)**, while the LiDAR delivered a perfect 10 Hz. **Reverted.** The scan matcher needs point DENSITY to fix rotation; judging density by ray spacing at a range was wrong |
 | 21 | 450 points restored, RViz2 on | **CRASHED into a wall in the far room and aborted.** Truth: on the floor (z=0.12) at world (4.98, 9.32) from sim t=108 s to the end. Drift started ~25 s BEFORE impact (0.6 -> 5 m), so it flew into the wall believing it was elsewhere; SLAM then ran to 37 m while the drone lay still. Map 29/120 (24%), 6 guard firings. LiDAR 10.0-10.2 Hz throughout - NOT starvation this time |
+| 22 | **locality bias in `utility_step`** (score x exp(-cost/5)), RViz2 on | **Zig-zag fixed:** trips 1,3,7,6,3,1,6,5,3,9,2 cells (run 21: 7,10,14). Explored what it needed in 36 cells, no crash. But **map 31/120 (26%)**: SLAM drifted to 0.82 m (mean 0.21, yaw fine at 0.5 deg), and the mapper only snaps walls within +-0.25 m of a grid line. Aborted on the way home at 5 guard firings - all genuine: at 0.8 m of error the drone really was 4-12 cm from walls |
 | 16 | **NEW `frontier` explorer on the generated building `rooms_small_4`** (3 rooms wide, 12x10 m, 120 cells) | **Clean autonomous mission in ~2.5 min: 24 cells flown, all 120 mapped. Map 111/120 cells (92%), 462/480 sides (96%). SLAM error mean 0.028 m, max 0.063 m.** Landed, exit 0. First time the whole chain works. (Runs 14/15 never flew: 14 was the wrong world; 15 lost Gazebo at startup to the WSL GPU glitch - `sim_up.sh` now retries)
 | 17 | `rooms_small_4`, first flight with the 330 mm / 1.3 kg drone, 360° cameras, ToF guard and optical flow | **Clean mission, about 3 min: 120/120 cells mapped; 111/120 cells (92%) and 471/480 sides (98%) correct. SLAM error mean 0.05 m, max 0.13 m.** Guard fired 4 times falsely: the pose-difference speed read 1.4–1.9 m/s against a true 1.11 m/s. It now uses EKF velocity. Run folder: `sim/runs/0918_192850` |
 
@@ -79,10 +80,13 @@ maze ~5.5 -> 2.5 min, rooms_small_4 17 -> 2.1 min, rooms_1 (544 cells) 79 -> 7.9
 narrow maze (0.03 m vs 1+ m), which fits the failure being specific to those corridors.
 
 **Two open problems after runs 20/21 (2026-09-18), both seen by the user in RViz:**
-1. **SLAM still drifts in the far room** of rooms_small_4 and the drone crashes into a wall there. Runs 19 (clean,
-   max 0.18 m) and 21 (crash) differ only in RViz being open - unproven either way, so the next step is one run with
-   RViz off and one with it on, nothing else changed. What IS established: the drift precedes the collision, the
-   LiDAR rate was fine, and the huge post-crash numbers are the estimate running away while the drone lies still.
+1. **SLAM drift is now THE limiting factor, and it is not RViz.** Five runs on rooms_small_4, 450 points:
+   17 (no RViz) 0.13 m / 92%, 19 (no RViz) 0.18 m / 97%, 18 (no RViz) 3.63 m (dropped scans), 21 (RViz) 37.6 m /
+   24% (crash), 22 (RViz) 0.82 m / 26%. Run 18 broke without RViz, so the viewer is not the cause: the scan matcher
+   is simply fragile in a building of identical 2x2 m rooms joined by 1 m doorways (perceptual aliasing - the same
+   thing the old corridor maze showed). An 0.8 m error alone costs the map, because grid_mapper only snaps wall
+   pixels within +-0.25 m of a grid line. **Next work is Cartographer tuning, not exploration:** `sub70`, `occ20`,
+   `tw1` were the sweep's best and have NEVER been flown, and the IMU now works. Fly each on rooms_small_4.
 2. **The route zig-zags across the building.** Real decision sequence from run 21: (1,3) -> 7 cells back to (1,-4),
    (4,-5) -> 10 cells up to (6,3), (8,-5) -> 14 cells back across to (1,-4). `utility_step` divides gain by cost, so
    a big distant room beats finishing the room we are standing in, and `frontier_step` checks room centres first

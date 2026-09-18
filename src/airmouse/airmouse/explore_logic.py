@@ -339,14 +339,22 @@ def camera_gain(cells, cell, cam_seen, cam_reach):
 
 
 def utility_step(cells, current, visited, cam_seen, blocked=(), require_seen=True, cam_reach=3.0,
-                 lidar_value=3.0, stop_cost=6.0, edge_cost=None):
-    """Pick the stop worth the most per unit of flying: (map gain + camera gain) / (route cost + stop cost).
+                 lidar_value=3.0, stop_cost=6.0, edge_cost=None, locality=5.0):
+    """Pick the stop worth the most per unit of flying, strongly preferring somewhere near.
+
+    score = (map gain + camera gain) / (route cost + stop cost) x exp(-cost / locality)
 
     Map gain = `lidar_value` cells per open side leading into unmapped space (we cannot know what lies
     behind it; ~3 cells is what one doorway shows). Camera gain = cells a spin there would show the camera
     for the first time - survivors (240 pts) are found by the camera, and the LiDAR maps a room from its
     doorway long before the camera has looked into its corners. `stop_cost` (in cells of flight) is the
     hover + spin at every stop, so ten one-cell nibbles lose to one stop that sees the same.
+
+    `locality` (cells) is why the exponential is there. Dividing gain by cost alone is scale-free: a big
+    unexplored room 14 cells away scores like a small one next door, so the drone crossed the whole building
+    and came back (run 21: (1,3) -> 7 cells to (1,-4), (4,-5) -> 10 cells to (6,3), (8,-5) -> 14 cells back to
+    (1,-4)). Each `locality` cells of route now costs a factor of e, so a far target has to be several times
+    richer to win, and we finish where we are first. 0 turns it off (the old scale-free behaviour).
     Returns ("frontier" | "camera", path) or (None, []) when nothing is left to gain.
     """
     best, best_score = None, 0.0
@@ -359,13 +367,15 @@ def utility_step(cells, current, visited, cam_seen, blocked=(), require_seen=Tru
             for side, (di, dj) in NEIGHBOUR.items())
         gain = lidar * lidar_value + len(camera_gain(cells, cell, cam_seen, cam_reach))
         score = gain / (cost + stop_cost)
+        if locality > 0:
+            score *= math.exp(-cost / locality)
         if score > best_score + 1e-9:
             best, best_score = ("frontier" if lidar else "camera", path), score
     return best if best else (None, [])
 
 
 def frontier_step(cells, current, visited, blocked=(), require_seen=True, centre_reach=6,
-                  cam_seen=None, cam_reach=3.0, edge_cost=None):
+                  cam_seen=None, cam_reach=3.0, edge_cost=None, locality=5.0):
     """Frontier exploration: decide where to fly next.
 
     1. If we are in or beside a room whose centre we have not been near, go to the centre (within
@@ -389,7 +399,7 @@ def frontier_step(cells, current, visited, blocked=(), require_seen=True, centre
                 return "centre", path
     if cam_seen is not None:
         kind, path = utility_step(cells, current, visited, cam_seen, blocked, require_seen, cam_reach,
-                                  edge_cost=edge_cost)
+                                  edge_cost=edge_cost, locality=locality)
         if path:
             return kind, path
     path = plan(cells, current,
