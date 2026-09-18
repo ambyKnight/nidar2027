@@ -124,6 +124,8 @@ echo
 echo "=== summary ==="
 grep -E "(step|backtrack|exploration|home again|out of time|ABORT)" "$OUT/explorer.log" | tail -10
 grep -m1 "visited .* cells:" "$OUT/explorer.log"
+echo "WALL GUARD fired: $(grep -c "WALL GUARD:" "$OUT/explorer.log" 2>/dev/null || echo 0) times"
+echo "camera decisions: $(grep -c "camera:" "$OUT/explorer.log" 2>/dev/null || echo 0)"
 echo "picture: $OUT/path.png"
 echo "kept: $RUNDIR/  (bag, logs, picture)"
 exit $rc
