@@ -1,22 +1,29 @@
-"""Step 8: explore the maze on our own - no route planned in advance, no knowledge of the layout.
+"""Autonomous maze exploration with frontier utility, multi-cell legs, and safety rails.
 
-This is the node that makes the flight autonomous. plan_tour.py flew a route computed from the TRUE
-maze; the explorer only ever looks at /airmouse/grid, the map the drone is building as it flies.
+This is the node that makes the flight autonomous. The explorer only ever looks at /airmouse/grid,
+the map the drone builds as it flies, plus /map and onboard ToF range sensors.
 
-Cell by cell: stop in the centre of each new cell, hover until the map of that cell settles, then
-pick the next cell. Depth-first while there is somewhere new to go, shortest known path back when we
-hit a dead end, and finally back to the takeoff cell to land. Deliberately unhurried - in a 1 m
-corridor with a 33 cm drone and 0.1-0.3 m SLAM error, arriving is worth more than arriving quickly.
-The under-15-minute bonus comes later, by flying multi-cell legs once this works end to end.
+Exploration strategy:
+  - Frontier + camera-aware utility: scores reachable frontiers by distance, unknown cell discovery,
+    corridor penalties, and camera coverage gain so wide-angle / 360-degree cameras observe cells
+    without needing to visit every individual cell centre.
+  - Multi-cell legs: chains consecutive straight-line corridor hops into single continuous flight
+    legs (up to max_leg) instead of stopping and settling at every single cell centre.
+  - Autonomous exit: once the maze is fully explored and camera-covered, plans and flies through the
+    entrance/exit opening out of the arena to clear the threshold before landing.
+  - Mission time budget: tracks remaining mission time using sim/ROS clock, dynamically reserving
+    enough time to fly the shortest known path back home before the mission budget expires.
 
+Safety rails:
+  - Only ever crosses a side the map calls "open" ("unknown" counts as a wall).
+  - Refuses the entrance side during exploration so the drone does not leave early.
+  - ToF wall guard: 4-directional ToF range sensors trigger emergency deceleration / backoff if an
+    obstacle or wall is approached too fast or too close.
+  - Stuck timeout on every leg, ensuring unreachable waypoints trigger landing rather than hovering.
+
+Usage:
     ros2 run airmouse explorer
-    ros2 run airmouse explorer --ros-args -p altitude:=1.2 -p settle_time:=2.5
-
-Safety rails, all of which have bitten us before:
-  - only ever crosses a side the map calls "open" ("unknown" counts as a wall)
-  - refuses the entrance side of the takeoff cell, which is open but leads out of the arena
-  - hard budget (mission_timeout, including the trip home): we turn for home while we still can
-  - stuck_timeout on every leg, so a waypoint we cannot reach lands the drone instead of hovering
+    ros2 run airmouse explorer --ros-args -p altitude:=1.2 -p settle_time:=2.0
 """
 import json
 import math

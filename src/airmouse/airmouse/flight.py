@@ -1,15 +1,20 @@
 """Shared flight plumbing: arm, take off, fly to a point, land - with every retry fly_square learned.
 
-The hard-won parts (see README "Gotchas" and NOTES):
-  - ArduPilot streams no position until asked, so we request the streams before anything else.
-  - Arming is refused for the first 30-60 s while the EKF settles; keep retrying, do not give up.
-  - A takeoff can be rejected and the drone then auto-disarms, so check the reply instead of waiting.
-  - A service request sent before the service is ready is silently lost - check service_is_ready()
-    and re-send after 5 s without a reply, or the node waits for a message that never comes.
+Flight state machine:
+  WAIT_FOR_FCU -> ARM_AND_TAKEOFF -> CLIMBING -> MISSION -> LANDING -> DONE
 
-A subclass implements mission_tick(), which runs once the drone is hovering at altitude, and calls
-finish() or abort() when it is done. fly_square is deliberately left alone as the known-good
-reference node; this is the same state machine with a mission hook in place of a fixed route.
+Key mechanisms:
+  - ArduPilot streams no position until asked, so we request stream rates before anything else.
+  - Arming is retried while the EKF settles; takeoff requests verify reply and retry up to 5 times.
+  - Service requests check service_is_ready() and re-send after 5 s timeout to avoid silent drops.
+  - Yaw control: go_to(x, y, z, yaw) publishes PoseStamped targets with quaternion orientation
+    to point the nose and onboard camera towards points of interest or along travel headings.
+  - Landing timeout: guards against drone remaining armed indefinitely in LAND mode; aborts and
+    exits with error if disarm does not occur within landing_timeout (default 60 s).
+
+A subclass implements mission_tick(), which runs once the drone is hovering at altitude in the
+MISSION phase, and calls finish() or abort() when done. fly_square is deliberately left alone as
+the known-good reference node; this is the same state machine with a mission hook in place of a fixed route.
 """
 import math
 import time
