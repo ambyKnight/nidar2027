@@ -87,7 +87,7 @@ class Explorer(CopterNode):
         # NIDAR's under-15-minute bonus.
         self.mission_timeout = self.declare_parameter("mission_timeout", 840.0).value
         self.home_margin = self.declare_parameter("home_margin", 60.0).value
-        self.wp_speed = self.declare_parameter("wp_speed", 0.5).value      # WP_SPD in indoor.parm
+        self.wp_speed = self.declare_parameter("wp_speed", 1.0).value      # matches WP_SPD = 1.0 m/s in indoor.parm
         # Survivors (240 pts) are found by the CAMERA. "utility": pick stops by map + camera gain per unit of
         # flight (explore_logic.utility_step), so every cell gets looked at within cam_reach. "off" = ignore it.
         # cam_hfov_deg is the COMBINED view: 360 for our two 200 deg side cameras - then the drone never yaws
