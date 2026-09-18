@@ -86,6 +86,7 @@ Speed and landing settings for ArduPilot are in `sim/params/indoor.parm` (`nogps
 | `explorer` | **Explores on its own.** Reads `/airmouse/grid`. Default `strategy:=frontier`: flies to the nearest cell whose open side leads to unmapped space (straight legs, re-plans if the map changes), flies to the centre of each room it enters, then goes home and lands. `strategy:=dfs` is the old cell-by-cell tour. Publishes live state on `/airmouse/explorer`. |
 | `slam_to_mavros` | Sends Cartographer's `map -> base_link` pose to ArduPilot in place of GPS; sets the EKF origin; asks for faster MAVLink streams. |
 | `grid_mapper` | `/map` -> 1 m cells with each side wall/open/unknown -> `/airmouse/grid` (JSON) + `/airmouse/grid_markers` (RViz, built only when something subscribes). |
+| `survivor_tagger` | Autonomously detects, clusters, and geotags survivors into 1 m grid cells (`/airmouse/survivors` + RViz markers). Supports both live camera detections and sim truth checks. |
 | `dashboard_server` | Serves the web-based GCS dashboard at `http://localhost:8080`, connecting to `rosbridge_websocket` on port 9090. |
 | `fly_square` | Arms, takes off, flies a list of waypoints, lands. The simple known-good reference node - handy as a smoke test on the real drone. |
 
@@ -93,7 +94,8 @@ Plain-Python modules (no ROS, unit-testable): `explore_logic.py` (search and pla
 (map -> cells), `flight.py` (the shared arm / takeoff / goto / land state machine).
 
 Useful `explorer` parameters: `strategy`, `chain` (re-plan without stopping), `centre_reach` (0 = don't
-centre rooms), `settle_time`, `corner_tol` (cut corners by up to this, m), `reached_tol`, `mission_timeout`.
+centre rooms), `settle_time`, `corner_tol` (cut corners by up to this, m), `reached_tol`, `mission_timeout`,
+`auto_exit` (default true: fly out through entrance to land outside for 50 pts), `exit_distance` (1.2 m).
 
 ## Tools (sim/)
 

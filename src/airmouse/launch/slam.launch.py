@@ -55,4 +55,8 @@ def generate_launch_description():
         # /map -> 1 m cells with wall/open sides (/airmouse/grid, /airmouse/grid_markers)
         Node(package="airmouse", executable="grid_mapper", name="grid_mapper",
              parameters=params),
+
+        # Autonomous survivor localisation and tagging (/airmouse/survivors)
+        Node(package="airmouse", executable="survivor_tagger", name="survivor_tagger",
+             parameters=params),
     ])

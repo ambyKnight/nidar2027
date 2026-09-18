@@ -26,6 +26,7 @@ const state = {
     tof: {},
     elapsed: 0.0
   },
+  survivors: [],       // [{id, tag, cell, x, y, confidence}]
   
   // Canvas & Viewport
   canvas: null,
@@ -59,6 +60,8 @@ const el = {
   valCameraSeen: document.getElementById("val-camera-seen"),
   valGoingHome: document.getElementById("val-going-home"),
   valGuardEvents: document.getElementById("val-guard-events"),
+  valSurvivorCount: document.getElementById("val-survivor-count"),
+  survivorList: document.getElementById("survivor-list"),
   
   tofFwd: document.getElementById("tof-fwd"),
   tofBwd: document.getElementById("tof-bwd"),
@@ -103,6 +106,7 @@ function initWebSocket() {
     // Subscribe to topics
     subscribeTopic("/airmouse/grid", "std_msgs/msg/String");
     subscribeTopic("/airmouse/explorer", "std_msgs/msg/String");
+    subscribeTopic("/airmouse/survivors", "std_msgs/msg/String");
     subscribeTopic("/mavros/local_position/pose", "geometry_msgs/msg/PoseStamped");
   };
   
@@ -168,8 +172,30 @@ function handleRosMessage(msg) {
     handleGridMessage(msg.msg);
   } else if (topic === "/airmouse/explorer") {
     handleExplorerMessage(msg.msg);
+  } else if (topic === "/airmouse/survivors") {
+    handleSurvivorsMessage(msg.msg);
   } else if (topic === "/mavros/local_position/pose") {
     handlePoseMessage(msg.msg);
+  }
+}
+
+function handleSurvivorsMessage(msgData) {
+  try {
+    const payload = typeof msgData.data === "string" ? JSON.parse(msgData.data) : msgData.data;
+    state.survivors = payload.survivors || [];
+    el.valSurvivorCount.textContent = state.survivors.length;
+    if (state.survivors.length === 0) {
+      el.survivorList.innerHTML = '<span class="no-data">No survivors tagged yet</span>';
+    } else {
+      el.survivorList.innerHTML = state.survivors.map(s => `
+        <div class="survivor-item">
+          <span class="survivor-tag">✛ ${s.tag}</span>
+          <span class="survivor-coords">Cell (${s.cell[0]}, ${s.cell[1]})</span>
+        </div>
+      `).join("");
+    }
+  } catch (err) {
+    console.warn("Error parsing survivors message:", err);
   }
 }
 
@@ -197,7 +223,7 @@ function handleExplorerMessage(msgData) {
     el.phaseBadge.className = "badge";
     if (["FLY", "LOOK", "SETTLE", "SPIN"].includes(phase)) {
       el.phaseBadge.classList.add("badge-active");
-    } else if (phase === "HOME" || phase === "LANDING") {
+    } else if (phase === "HOME" || phase === "EXIT" || phase === "LANDING") {
       el.phaseBadge.classList.add("badge-home");
     } else if (phase === "ABORTED") {
       el.phaseBadge.classList.add("badge-alert");
@@ -340,6 +366,7 @@ function renderMap() {
   drawCells(ctx);
   drawPlannedRoute(ctx);
   drawTrail(ctx);
+  drawSurvivors(ctx);
   drawDrone(ctx);
   
   requestAnimationFrame(renderMap);
@@ -500,6 +527,46 @@ function drawTrail(ctx) {
     else ctx.lineTo(sx, sy);
   }
   ctx.stroke();
+}
+
+function drawSurvivors(ctx) {
+  if (!state.survivors || state.survivors.length === 0) return;
+  
+  const pulse = Math.sin(Date.now() / 250) * 3;
+  for (const s of state.survivors) {
+    const sx = toScreenX(s.x);
+    const sy = toScreenY(s.y);
+    
+    // Outer pulse ring
+    ctx.strokeStyle = "rgba(249, 115, 22, 0.4)";
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(sx, sy, 14 + pulse, 0, Math.PI * 2);
+    ctx.stroke();
+    
+    // Solid orange circular beacon
+    ctx.fillStyle = "#f97316";
+    ctx.strokeStyle = "#ffffff";
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(sx, sy, 9, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    
+    // White Cross symbol in center
+    ctx.strokeStyle = "#ffffff";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(sx - 4, sy); ctx.lineTo(sx + 4, sy);
+    ctx.moveTo(sx, sy - 4); ctx.lineTo(sx, sy + 4);
+    ctx.stroke();
+    
+    // Label above (S1, S2, etc.)
+    ctx.fillStyle = "#fdba74";
+    ctx.font = "bold 10px monospace";
+    ctx.textAlign = "center";
+    ctx.fillText(`${s.tag} (${s.cell[0]},${s.cell[1]})`, sx, sy - 14);
+  }
 }
 
 function drawDrone(ctx) {

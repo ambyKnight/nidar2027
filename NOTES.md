@@ -306,12 +306,12 @@ Now
 
 Next
 - [ ] `mission_manager`: takeoff -> explore -> room scan -> return (time/battery budget) -> exit -> land
-- [ ] Autonomous exit through the entrance (50 pts) - the one time we DO cross that blocked side
+- [x] Autonomous exit through the entrance (50 pts) - the one time we DO cross that blocked side
 - [ ] Multi-cell legs instead of stopping in every cell, for the <15 min bonus (25 pts)
 - [ ] Evaluate Nav2 for traversal underneath the explorer
 - [ ] Random-maze generator + overnight batch runs with auto-scoring
 - [ ] Survivors in the sim (Rescue Randy; Gazebo Fuel downloads are blocked on this network)
-- [ ] Bounding-box camera as a fake detector, then `survivor_tagger` -> grid cell tags
+- [x] Bounding-box camera as a fake detector, then `survivor_tagger` -> grid cell tags
 - [x] GCS dashboard (lightweight HTML5/Canvas web dashboard at http://localhost:8080 via rosbridge WebSocket)
 - [x] Put `~/airmouse_ws` under Git
 

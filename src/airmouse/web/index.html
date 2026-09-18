@@ -126,6 +126,14 @@
           </div>
         </div>
 
+        <!-- Survivors Card -->
+        <div class="telemetry-card">
+          <div class="card-title">SURVIVORS TAGGED (<span id="val-survivor-count">0</span>)</div>
+          <div id="survivor-list" class="survivor-list">
+            <span class="no-data">No survivors tagged yet</span>
+          </div>
+        </div>
+
         <!-- Map Legend Card -->
         <div class="telemetry-card legend-card">
           <div class="card-title">MAP LEGEND</div>
@@ -141,6 +149,10 @@
             <div class="legend-item">
               <span class="legend-line path-line"></span>
               <span class="legend-text">Planned Route (Cyan)</span>
+            </div>
+            <div class="legend-item">
+              <span class="legend-box survivor-legend-box"></span>
+              <span class="legend-text">Survivor Tag (Orange)</span>
             </div>
             <div class="legend-item">
               <span class="legend-box visited-box"></span>

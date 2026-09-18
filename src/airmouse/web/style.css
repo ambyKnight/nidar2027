@@ -364,6 +364,12 @@ html, body {
   border-radius: 3px;
 }
 
+.legend-box.survivor-legend-box {
+  background: #f97316;
+  border-radius: 50%;
+  border: 1px solid #ffffff;
+}
+
 .legend-box.visited-box {
   background: rgba(34, 197, 94, 0.25);
   border: 1px solid var(--accent-green);
@@ -372,6 +378,45 @@ html, body {
 .legend-box.drone-box {
   background: var(--accent-cyan);
   clip-path: polygon(50% 0%, 0% 100%, 100% 100%);
+}
+
+/* Survivor List */
+.survivor-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 120px;
+  overflow-y: auto;
+}
+
+.survivor-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: rgba(249, 115, 22, 0.12);
+  border: 1px solid rgba(249, 115, 22, 0.35);
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.survivor-tag {
+  font-weight: 700;
+  color: #fb923c;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.survivor-coords {
+  color: var(--text-main);
+}
+
+.no-data {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-style: italic;
 }
 
 /* Map Viewport */

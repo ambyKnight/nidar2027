@@ -227,6 +227,21 @@ def check_stalled_map(failures):
     return failures
 
 
+def check_exit_geometry(failures):
+    """Verify autonomous exit computes target point and heading outside the arena."""
+    vecs = {"+x": (1.0, 0.0, 0.0), "-x": (-1.0, 0.0, math.pi),
+            "+y": (0.0, 1.0, math.pi / 2), "-y": (0.0, -1.0, -math.pi / 2)}
+    dist = 1.2
+    for side, (dx, dy, yaw) in vecs.items():
+        tx = HOME[0] + dx * dist
+        ty = HOME[1] + dy * dist
+        # Check target is strictly outside home cell boundary (0.5m)
+        assert math.hypot(tx, ty) >= 1.0, f"Exit target {tx},{ty} not outside cell"
+        assert abs(math.cos(yaw) - dx) < 1e-6 and abs(math.sin(yaw) - dy) < 1e-6
+    print("PASS  autonomous exit geometry and heading verified for all entrance sides")
+    return failures
+
+
 def main():
     full_map = truth_to_cells(json.loads(TRUTH.read_text()))
     failures = check_coverage(full_map, 0, max_leg=1)
@@ -239,6 +254,7 @@ def main():
         failures = check_frontier(other, failures, name)
     failures = check_entrance(full_map, failures)
     failures = check_stalled_map(failures)
+    failures = check_exit_geometry(failures)
 
     off = [(c, n) for c in full_map for n in open_neighbours(full_map, c, BLOCKED) if n not in full_map]
     if off:

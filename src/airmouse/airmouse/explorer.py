@@ -113,8 +113,13 @@ class Explorer(CopterNode):
         # the run-13 analysis did not confirm that geometry as the cause of the SLAM breakdown.
         drift = self.declare_parameter("drift_penalty", 0.0).value
         self.edge_cost = (lambda cells, a, b: drift * corridor_penalty(cells, a, b)) if drift > 0 else None
-        # the entrance is an open side of the takeoff cell that leads outside - never cross it
+        # the entrance is an open side of the takeoff cell that leads outside - never cross it while exploring
         entrance = self.declare_parameter("entrance_side", "-x").value
+        self.entrance_side = entrance
+        self.auto_exit = self.declare_parameter("auto_exit", True).value
+        self.exit_distance = self.declare_parameter("exit_distance", 1.2).value
+        self.exit_target = None
+        self.exit_heading = 0.0
         self.blocked = {(HOME, entrance)} if entrance else set()
 
         self.cells = {}
@@ -279,6 +284,8 @@ class Explorer(CopterNode):
             self.tick_settle()
         elif self.state == "SPIN":
             self.tick_spin()
+        elif self.state == "EXIT":
+            self.tick_exit()
         else:
             self.tick_travel()
 
@@ -427,7 +434,10 @@ class Explorer(CopterNode):
                 self.leg_started = time.monotonic()
                 if not self.queue:
                     if self.going_home:
-                        self.finish(f"home again: {len(self.visited)} cells visited")
+                        if self.current == HOME and self.auto_exit and self.entrance_side:
+                            self.start_exit()
+                        else:
+                            self.finish(f"home again: {len(self.visited)} cells visited")
                         return
                     # settle in a cell we have not mapped from the inside yet; fly straight through
                     # the ones we already know
@@ -437,11 +447,39 @@ class Explorer(CopterNode):
                     self.settle_until = time.monotonic() + (self.settle_time if new_cell else 0.0)
                 return
 
+    def start_exit(self):
+        """Cross the entrance opening to the outside of the arena (50 pts) and land."""
+        vecs = {"+x": (1.0, 0.0, 0.0), "-x": (-1.0, 0.0, math.pi),
+                "+y": (0.0, 1.0, math.pi / 2), "-y": (0.0, -1.0, -math.pi / 2)}
+        vec = vecs.get(self.entrance_side, (-1.0, 0.0, math.pi))
+        target_x = HOME[0] * self.cell_size + vec[0] * self.exit_distance
+        target_y = HOME[1] * self.cell_size + vec[1] * self.exit_distance
+        self.exit_target = (target_x, target_y)
+        self.exit_heading = vec[2]
+        self.state = "EXIT"
+        self.leg_started = time.monotonic()
+        self.get_logger().info(
+            f"AUTONOMOUS EXIT (50 pts): flying out via {self.entrance_side} to ({target_x:.2f}, {target_y:.2f}) "
+            f"at yaw {math.degrees(self.exit_heading):.0f} deg")
+
+    def tick_exit(self):
+        """Command position setpoint outside the arena until reached, then land."""
+        tx, ty = self.exit_target
+        self.go_to(tx, ty, yaw=self.exit_heading)
+        if self.distance_to(tx, ty) < self.reached_tol:
+            self.finish(f"autonomous exit complete via {self.entrance_side} ({self.exit_distance:.1f} m outside) - landing")
+            return
+        if time.monotonic() - self.leg_started > self.stuck_timeout:
+            self.finish(f"exit timeout ({self.stuck_timeout:.0f} s) - landing outside near entrance")
+
     def head_home(self):
         """Every reachable cell is done (or the clock ran out): fly back the way we came and land."""
         self.going_home = True
         if self.current == HOME:
-            self.finish(f"exploration complete: {len(self.visited)} cells visited")
+            if self.auto_exit and self.entrance_side:
+                self.start_exit()
+            else:
+                self.finish(f"exploration complete: {len(self.visited)} cells visited")
             return
         path = path_home(self.cells, self.current, self.visited, HOME, self.blocked,
                         through_seen=self.strategy == "frontier")

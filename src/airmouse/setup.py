@@ -34,6 +34,7 @@ setup(
             'grid_mapper = airmouse.grid_mapper:main',
             'explorer = airmouse.explorer:main',
             'dashboard_server = airmouse.dashboard_server:main',
+            'survivor_tagger = airmouse.survivor_tagger:main',
         ],
     },
 )
